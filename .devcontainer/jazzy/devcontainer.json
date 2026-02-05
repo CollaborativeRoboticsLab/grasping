@@ -1,0 +1,22 @@
+{
+  "name": "UR10 Grasping jazzy base",
+  "dockerFile": "Dockerfile",
+  "remoteUser": "ubuntu",
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}"
+  },
+  "runArgs": [
+    "--privileged",
+    "--network=host"
+  ],
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ubuntu/colcon_ws/${localWorkspaceFolderBasename},type=bind",
+  "workspaceFolder": "/home/ubuntu/colcon_ws",
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/ubuntu/.bash_history,type=bind",
+    "source=${localWorkspaceFolder}/license,target=/anygrasp_sdk/license_registration/license,type=bind",
+    "source=${localWorkspaceFolder}/license,target=/anygrasp_sdk/grasp_detection/license,type=bind",
+    "source=${localWorkspaceFolder}/license,target=/anygrasp_sdk/grasp_tracking/license,type=bind",
+    "source=${localWorkspaceFolder}/weights/detection,target=/grasp_detection/log,type=bind",
+    "source=${localWorkspaceFolder}/weights/tracking,target=/grasp_tracking/log,type=bind"
+  ]
+}
