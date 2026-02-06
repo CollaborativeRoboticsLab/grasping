@@ -1,25 +1,40 @@
-FROM ros:humble
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04 AS base
 
-# Add vscode user with same UID and GID as your host system
-# (modified from https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user#_creating-a-nonroot-user)
-# ubuntu now has a 1000 user ubuntu
-ARG USERNAME=ubuntu
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
+## Set ROS distribution as an environment variable
+ENV ROS_DISTRO=humble
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
+## Check and update locale settings
+RUN apt-get update && apt-get upgrade -y && apt-get install --no-install-recommends -y \
+    locales \
+    gnupg2 \
+    ca-certificates \
+    pkg-config \
+    lsb-release 
+    
+RUN locale-gen en_US en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y \
-    sudo \
-    git \
-    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+ENV LANG=en_US.UTF-8
+ENV PYTHONIOENCODING=utf-8
+
+## Add ROS 2 apt repository and keys
+RUN apt-get update && apt-get install --no-install-recommends -y software-properties-common && \
+    add-apt-repository universe
+
+RUN apt-get update && apt-get install --no-install-recommends -y curl && \
+    export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}') && \
+    curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb" && \
+    dpkg -i /tmp/ros2-apt-source.deb
+
+## Install ROS 2 base and development tools
+RUN apt-get update && apt-get upgrade -y && apt-get install --no-install-recommends -y \
+    ros-${ROS_DISTRO}-ros-base \
+    ros-dev-tools && \
+    rm -rf /var/lib/apt/lists/*
 
 ## Add dependencies ROS development
 RUN apt-get update && apt-get install -y \
+    git \
     build-essential \
     python3-colcon-common-extensions \
     ros-${ROS_DISTRO}-ur \
@@ -30,6 +45,9 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libopenblas-dev \
     && rm -rf /var/lib/apt/lists/*
+
+## Upgrade pip and build tooling
+RUN python3 -m pip install --upgrade pip setuptools wheel
 
 ## install PyTorch with CUDA support (if you have an NVIDIA GPU and the appropriate drivers installed)
 RUN python3 -m pip install --no-cache-dir \
@@ -42,10 +60,11 @@ RUN python3 -m pip install --no-cache-dir \
 WORKDIR /dependencies
 ENV CUDA_HOME=/usr/local/cuda
 ENV CXX=c++
-RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git
+ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9"
+RUN git clone https://github.com/chenxi-wang/MinkowskiEngine.git
 
 WORKDIR /dependencies/MinkowskiEngine
-RUN sed -i 's/\bauto __raw = __to_address(__r.get());/auto __raw = std::__to_address(__r.get());/' /usr/include/c++/11/bits/shared_ptr_base.h && \
+RUN git checkout cuda-12-1 && \
     python3 setup.py install --blas=openblas --force_cuda
 
 ## Install GraspNET API
@@ -77,6 +96,24 @@ WORKDIR /anygrasp_sdk/grasp_tracking
 RUN cp tracker_versions/tracker.cpython-310-x86_64-linux-gnu.so tracker.so && \
     cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-310-x86_64-linux-gnu.so lib_cxx.so
 
+# Add vscode user with same UID and GID as your host system
+# (modified from https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user#_creating-a-nonroot-user)
+# ubuntu now has a 1000 user ubuntu
+
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y \
+    sudo \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
+
 # Switch from root to user
 USER $USERNAME
 
@@ -87,4 +124,8 @@ RUN rosdep update
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
 
 # make sure folders exist
-RUN mkdir -p ~/colcon_ws/src
+WORKDIR /colcon_ws/src
+
+RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git
+
