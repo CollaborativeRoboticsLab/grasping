@@ -36,6 +36,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install --no-install-recomme
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
+    cmake \
+    ninja-build \
+    libomp-dev \
     python3-colcon-common-extensions \
     ros-${ROS_DISTRO}-ur \
     ros-${ROS_DISTRO}-librealsense2* \
@@ -65,7 +68,7 @@ RUN git clone https://github.com/chenxi-wang/MinkowskiEngine.git
 
 WORKDIR /dependencies/MinkowskiEngine
 RUN git checkout cuda-12-1 && \
-    python3 setup.py install --blas=openblas --force_cuda
+    python3 setup.py install --blas=openblas --force_cuda -j 4
 
 ## Install GraspNET API
 WORKDIR /dependencies
@@ -103,8 +106,8 @@ ARG USERNAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 
-# RUN groupadd --gid $USER_GID $USERNAME \
-#     && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
 
 RUN apt-get update && \
     apt-get upgrade -y && \
@@ -113,11 +116,11 @@ RUN apt-get update && \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
+# Initialize rosdep as root
+RUN rosdep init && rosdep update
+
 # Switch from root to user
 USER $USERNAME
-
-# Rosdep update
-RUN rosdep update
 
 # Source the ROS setup file
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
