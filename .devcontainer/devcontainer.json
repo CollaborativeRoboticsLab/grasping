@@ -1,5 +1,5 @@
 {
-  "name": "UR10 Grasping jazzy base",
+  "name": "UR10 Grasping Jazzy base",
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
   "containerEnv": {
@@ -7,9 +7,11 @@
   },
   "runArgs": [
     "--privileged",
-    "--network=host"
+    "--network=host",
+    "--gpus",
+    "all"
   ],
-  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ubuntu/colcon_ws/${localWorkspaceFolderBasename},type=bind",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ubuntu/colcon_ws/src/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/home/ubuntu/colcon_ws",
   "mounts": [
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/ubuntu/.bash_history,type=bind",
