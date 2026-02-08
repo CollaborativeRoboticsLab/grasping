@@ -1,6 +1,8 @@
 # ur10-grasping
 
-This package provides grasping functionality for a [UR robot](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). Current configurations are focused towards a UR10 robot and a .. Realsense Camera
+This package provides grasping functionality for a [UR robot](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
+
+Current configurations are focused towards a UR10 robot and a D435 Realsense Camera
 
 ## Setup
 
@@ -17,11 +19,12 @@ Once the Container is built, run the `license_checker` function from anygrasp_sd
 Following commands will help to locate and run the `license_checker` within the dev container.
 
 ```bash
-cd /anygrasp_sdk/license_registration/
+cd /dependencies/anygrasp_sdk/license_registration/license
 ./license_checker -f
 ```
 
-Once you fill the form and receive the license zip file, unzip and copy it to the /`license` folder within the repo (Not inside the container). This will be automatically loaded into the following locations of the container,
+Once you fill the form and receive the license zip file, unzip and copy it to the `/license` folder within the repo (Not inside the container). Then rebuild the container.
+This will automatically load the license into the following locations of the container,
 
 - `/anygrasp_sdk/license_registration/license`  allows to run license checker
 - `/anygrasp_sdk/grasp_detection/license`       allows to run the grasp detection
@@ -36,7 +39,10 @@ cd /anygrasp_sdk/license_registration/
 
 ### Adding model weights
 
-Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively. These will be loaded into the `grasp_detection/log` and `grasp_tracking/log` folders inside the container.
+Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively and Rebuild the container.
+These will be loaded into the `grasp_detection/log` and `grasp_tracking/log` folders inside the container. 
+
+This can also be done alongside the prior `Adding Licesne` step.
 
 ### Basic testing
 

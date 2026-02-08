@@ -8,20 +8,21 @@ FROM pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel AS base
 ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 6.2 7.0 7.2 7.5 8.0 8.6" 
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 ENV MAX_JOBS=4
-ENV CUDA_HOME=/usr/local/cuda-12.6
-ENV PATH=/opt/conda/bin:${PATH}
+ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV CPATH=${CUDA_HOME}/include
 ENV LIBRARY_PATH=${CUDA_HOME}/lib:${LIBRARY_PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib:${LD_LIBRARY_PATH}
 ENV CXX=c++
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
         git \
         ninja-build \
+        net-tools \
         libopenblas-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -61,18 +62,19 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 ####        Install pointnet2
 ############################################################################
 
-## pip uses PEP 517 build isolation by default. It creates a temporary build environment and only installs 
-## what the project declares for building. The pointnet2 setup.py/pyproject appears to import torch during 
-## “get requirements to build wheel”, but doesn’t declare it in build requirements, so the isolated env 
-## doesn’t have torch, leading to ModuleNotFoundError. So  --no-build-isolation is needed.
+## pip uses PEP 517 build isolation by default. It creates a temporary build 
+## environment and only installs The pointnet2 setup.py/pyproject appears to 
+## import torch during “get requirements to build wheel”, but doesn’t declare 
+## it, leading to ModuleNotFoundError. So  --no-build-isolation is needed.
 
 WORKDIR /dependencies/anygrasp_sdk/pointnet2
 RUN python -m pip install --no-cache-dir --no-build-isolation .
 
 ############################################################################
-####        Move library files
+####    Move library, license and weight files to allow demo testing
 ############################################################################
 
+# Move library files
 WORKDIR /dependencies/anygrasp_sdk/grasp_detection
 RUN cp gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
     cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
@@ -80,6 +82,38 @@ RUN cp gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
 WORKDIR /dependencies/anygrasp_sdk/grasp_tracking
 RUN cp tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
     cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
+
+## Copy license folder
+COPY license /dependencies/anygrasp_sdk/license_registration/license
+COPY license /dependencies/anygrasp_sdk/grasp_detection/license
+COPY license /dependencies/anygrasp_sdk/grasp_tracking/license
+
+## Copy weight files
+COPY weights/detection /dependencies/anygrasp_sdk/grasp_detection/log
+COPY weights/tracking /dependencies/anygrasp_sdk/grasp_tracking/log
+
+############################################################################
+####        Fix missing OpenSSL 1.1 / libcrypto.so.1.1
+############################################################################
+
+## Ubuntu 24.04 which has moved from libcrypto.so.1.1 to libcrypto.so.3. But
+## the ./license_checker needs it, resulting in a lib missing error. This
+## has been reported at https://github.com/graspnet/anygrasp_sdk/issues/136
+## until issue is resolved, use the following fix to install libcrypto.so.1.1
+
+WORKDIR /dependencies
+RUN wget https://www.openssl.org/source/openssl-1.1.1o.tar.gz && \
+    tar -zxvf openssl-1.1.1o.tar.gz
+
+WORKDIR openssl-1.1.1o
+RUN ./config  && \
+    make  && \
+    make test  && \
+    make install  && \
+    find / -name libssl.so.1.1  && \
+    ln -s /usr/local/lib/libssl.so.1.1  /usr/lib/libssl.so.1.1 && \
+    find / -name libcrypto.so.1.1 && \
+    ln -s /usr/local/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1 && \
 
 ############################################################################
 ####        Install ROS2 Jazzy and ROS development tools
@@ -90,12 +124,15 @@ ENV ROS_DISTRO=jazzy
 ENV DEBIAN_FRONTEND=noninteractive
 
 ## Check and update locale settings
-RUN apt-get update && apt-get upgrade -y && apt-get install --no-install-recommends -y \
-    locales \
-    gnupg2 \
-    ca-certificates \
-    pkg-config \
-    lsb-release 
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+        locales \
+        gnupg2 \
+        ca-certificates \
+        pkg-config \
+        lsb-release \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 
@@ -103,36 +140,63 @@ ENV LANG=en_US.UTF-8
 ENV PYTHONIOENCODING=utf-8
 
 ## Add ROS 2 apt repository and keys
-RUN apt-get update && apt-get install --no-install-recommends -y software-properties-common && \
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y software-properties-common && \
     add-apt-repository universe
 
-RUN apt-get update && apt-get install --no-install-recommends -y curl && \
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y curl && \
     export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}') && \
     curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb" && \
     dpkg -i /tmp/ros2-apt-source.deb
 
 ## Install ROS 2 base and development tools
-RUN apt-get update && apt-get upgrade -y && apt-get install --no-install-recommends -y \
-    ros-${ROS_DISTRO}-ros-base \
-    ros-dev-tools && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install --no-install-recommends -y \
+        ros-${ROS_DISTRO}-ros-base \
+        ros-dev-tools  \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Initialize rosdep as root
 RUN rosdep init && rosdep update
 
 ## Add dependencies ROS development
-RUN apt-get update && apt-get install --no-install-recommends -y \
-    python3-colcon-common-extensions \
-    ros-${ROS_DISTRO}-ur \
-    ros-${ROS_DISTRO}-librealsense2* \
-    ros-${ROS_DISTRO}-realsense2-* \
-    python3 \
-    python3-pip \
-    python3-dev \
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+        python3-colcon-common-extensions \
+        ros-${ROS_DISTRO}-ur \
+        ros-${ROS_DISTRO}-librealsense2* \
+        ros-${ROS_DISTRO}-realsense2-* \
+        python3 \
+        python3-pip \
+        python3-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 ############################################################################
-####        Add vscode user
+####    Move library, license and weight files to ros2 workspace root
+############################################################################
+
+WORKDIR /home/ubuntu/colcon_ws/
+
+# Move library files
+RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
+    cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
+    cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
+
+## Copy license folder
+COPY license license
+COPY license license
+COPY license license
+
+## Copy weight files
+COPY weights/detection log
+COPY weights/tracking log
+
+############################################################################
+####      Add vscode user
 ############################################################################
 
 # Add vscode user with same UID and GID as your host system
@@ -144,9 +208,8 @@ ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 
 RUN apt-get update && \
-    apt-get upgrade -y && \
     apt-get install  --no-install-recommends -y \
-    sudo \
+        sudo \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
