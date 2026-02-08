@@ -18,15 +18,12 @@ ENV CXX=c++
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        git \
-        ninja-build \
-        net-tools \
-        libopenblas-dev \
-        python3-pip \
-        python3-dev \
-        python3-colcon-common-extensions \
+    build-essential \
+    cmake \
+    git \
+    ninja-build \
+    net-tools \
+    libopenblas-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -108,11 +105,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ## Check and update locale settings
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-        locales \
-        gnupg2 \
-        ca-certificates \
-        pkg-config \
-        lsb-release \
+    locales \
+    gnupg2 \
+    ca-certificates \
+    pkg-config \
+    lsb-release \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -123,11 +120,17 @@ ENV PYTHONIOENCODING=utf-8
 
 ## Add ROS 2 apt repository and keys
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y software-properties-common && \
-    add-apt-repository universe
+    apt-get install --no-install-recommends -y \
+    software-properties-common \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && add-apt-repository universe
 
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y curl && \
+    apt-get install --no-install-recommends -y \
+    curl && \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* && \
     export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}') && \
     curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb" && \
     dpkg -i /tmp/ros2-apt-source.deb
@@ -136,20 +139,20 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
-        ros-${ROS_DISTRO}-ros-base \
-        ros-dev-tools  \
+    ros-${ROS_DISTRO}-ros-base \
+    ros-dev-tools  \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize rosdep as root
 RUN rosdep init && rosdep update
 
-## Add dependencies ROS development
+## Install UR robot packages and Realsense packages
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-        ros-${ROS_DISTRO}-ur \
-        ros-${ROS_DISTRO}-librealsense2* \
-        ros-${ROS_DISTRO}-realsense2-* \
+    ros-${ROS_DISTRO}-ur \
+    ros-${ROS_DISTRO}-librealsense2* \
+    ros-${ROS_DISTRO}-realsense2-* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -207,7 +210,9 @@ ARG USER_GID=$USER_UID
 
 RUN apt-get update && \
     apt-get install  --no-install-recommends -y \
-        sudo \
+    sudo  \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
