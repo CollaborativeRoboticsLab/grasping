@@ -15,20 +15,18 @@ ENV LIBRARY_PATH=${CUDA_HOME}/lib:${LIBRARY_PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib:${LD_LIBRARY_PATH}
 ENV CXX=c++
 
-## ` is only used in devcontainer
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    git \
-    sudo \
-    ninja-build \
-    net-tools \
-    libopenblas-dev \
-    python3-pip \
-    python3-dev \
-    python3-colcon-common-extensions \
+        build-essential \
+        cmake \
+        git \
+        ninja-build \
+        net-tools \
+        libopenblas-dev \
+        python3-pip \
+        python3-dev \
+        python3-colcon-common-extensions \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -110,11 +108,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ## Check and update locale settings
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-    locales \
-    gnupg2 \
-    ca-certificates \
-    pkg-config \
-    lsb-release \
+        locales \
+        gnupg2 \
+        ca-certificates \
+        pkg-config \
+        lsb-release \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -138,8 +136,8 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
-    ros-${ROS_DISTRO}-ros-base \
-    ros-dev-tools  \
+        ros-${ROS_DISTRO}-ros-base \
+        ros-dev-tools  \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -149,9 +147,9 @@ RUN rosdep init && rosdep update
 ## Add dependencies ROS development
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-    ros-${ROS_DISTRO}-ur \
-    ros-${ROS_DISTRO}-librealsense2* \
-    ros-${ROS_DISTRO}-realsense2-* \
+        ros-${ROS_DISTRO}-ur \
+        ros-${ROS_DISTRO}-librealsense2* \
+        ros-${ROS_DISTRO}-realsense2-* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -207,7 +205,10 @@ ARG USERNAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 
-RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+RUN apt-get update && \
+    apt-get install  --no-install-recommends -y \
+        sudo \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Switch from root to user
