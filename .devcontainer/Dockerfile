@@ -15,15 +15,20 @@ ENV LIBRARY_PATH=${CUDA_HOME}/lib:${LIBRARY_PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib:${LD_LIBRARY_PATH}
 ENV CXX=c++
 
+## ` is only used in devcontainer
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        git \
-        ninja-build \
-        net-tools \
-        libopenblas-dev \
+    build-essential \
+    cmake \
+    git \
+    sudo \
+    ninja-build \
+    net-tools \
+    libopenblas-dev \
+    python3-pip \
+    python3-dev \
+    python3-colcon-common-extensions \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -71,35 +76,14 @@ WORKDIR /dependencies/anygrasp_sdk/pointnet2
 RUN python -m pip install --no-cache-dir --no-build-isolation .
 
 ############################################################################
-####    Move library, license and weight files to allow demo testing
-############################################################################
-
-# Move library files
-WORKDIR /dependencies/anygrasp_sdk/grasp_detection
-RUN cp gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
-    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
-
-WORKDIR /dependencies/anygrasp_sdk/grasp_tracking
-RUN cp tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
-    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
-
-## Copy license folder
-COPY license /dependencies/anygrasp_sdk/license_registration/license
-COPY license /dependencies/anygrasp_sdk/grasp_detection/license
-COPY license /dependencies/anygrasp_sdk/grasp_tracking/license
-
-## Copy weight files
-COPY weights/detection /dependencies/anygrasp_sdk/grasp_detection/log
-COPY weights/tracking /dependencies/anygrasp_sdk/grasp_tracking/log
-
-############################################################################
 ####        Fix missing OpenSSL 1.1 / libcrypto.so.1.1
 ############################################################################
 
-## Ubuntu 24.04 which has moved from libcrypto.so.1.1 to libcrypto.so.3. But
-## the ./license_checker needs it, resulting in a lib missing error. This
-## has been reported at https://github.com/graspnet/anygrasp_sdk/issues/136
-## until issue is resolved, use the following fix to install libcrypto.so.1.1
+## Ubuntu 24.04 has moved from OpenSSL 1.1 (libcrypto.so.1.1) to OpenSSL 3
+## (libcrypto.so.3). But the ./license_checker needs libcrypto.so.1.1 to run, 
+## resulting in a lib missing runtime error. This has been reported at 
+## https://github.com/graspnet/anygrasp_sdk/issues/136 and until issue is 
+## resolved, uses the following fix to install libcrypto.so.1.1
 
 WORKDIR /dependencies
 RUN wget https://www.openssl.org/source/openssl-1.1.1o.tar.gz && \
@@ -126,11 +110,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ## Check and update locale settings
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-        locales \
-        gnupg2 \
-        ca-certificates \
-        pkg-config \
-        lsb-release \
+    locales \
+    gnupg2 \
+    ca-certificates \
+    pkg-config \
+    lsb-release \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -154,8 +138,8 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
-        ros-${ROS_DISTRO}-ros-base \
-        ros-dev-tools  \
+    ros-${ROS_DISTRO}-ros-base \
+    ros-dev-tools  \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -165,15 +149,33 @@ RUN rosdep init && rosdep update
 ## Add dependencies ROS development
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-        python3-colcon-common-extensions \
-        ros-${ROS_DISTRO}-ur \
-        ros-${ROS_DISTRO}-librealsense2* \
-        ros-${ROS_DISTRO}-realsense2-* \
-        python3 \
-        python3-pip \
-        python3-dev \
+    ros-${ROS_DISTRO}-ur \
+    ros-${ROS_DISTRO}-librealsense2* \
+    ros-${ROS_DISTRO}-realsense2-* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+############################################################################
+####    Move library, license and weight files to allow demo testing
+############################################################################
+
+# Move library files
+WORKDIR /dependencies/anygrasp_sdk/grasp_detection
+RUN cp gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
+    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
+
+WORKDIR /dependencies/anygrasp_sdk/grasp_tracking
+RUN cp tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
+    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
+
+## Copy license folder
+COPY license /dependencies/anygrasp_sdk/license_registration/license
+COPY license /dependencies/anygrasp_sdk/grasp_detection/license
+COPY license /dependencies/anygrasp_sdk/grasp_tracking/license
+
+## Copy weight files
+COPY weights/detection /dependencies/anygrasp_sdk/grasp_detection/log
+COPY weights/tracking /dependencies/anygrasp_sdk/grasp_tracking/log
 
 ############################################################################
 ####    Move library, license and weight files to ros2 workspace root
@@ -181,19 +183,17 @@ RUN apt-get update && \
 
 WORKDIR /home/ubuntu/colcon_ws/
 
-# Move library files
+# Move library files internally
 RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
     cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
     cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
 
-## Copy license folder
-COPY license license
-COPY license license
-COPY license license
+## Copy license folder from build context into the image
+COPY license /home/ubuntu/colcon_ws/license
 
-## Copy weight files
-COPY weights/detection log
-COPY weights/tracking log
+## Copy weight files from build context into the image
+COPY weights/detection /home/ubuntu/colcon_ws/weights/detection
+COPY weights/tracking /home/ubuntu/colcon_ws/weights/tracking
 
 ############################################################################
 ####      Add vscode user
@@ -207,10 +207,7 @@ ARG USERNAME=ubuntu
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 
-RUN apt-get update && \
-    apt-get install  --no-install-recommends -y \
-        sudo \
-    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Switch from root to user
