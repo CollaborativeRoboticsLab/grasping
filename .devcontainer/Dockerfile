@@ -113,7 +113,7 @@ RUN ./config  && \
     find / -name libssl.so.1.1  && \
     ln -s /usr/local/lib/libssl.so.1.1  /usr/lib/libssl.so.1.1 && \
     find / -name libcrypto.so.1.1 && \
-    ln -s /usr/local/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1 && \
+    ln -s /usr/local/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
 
 ############################################################################
 ####        Install ROS2 Jazzy and ROS development tools
