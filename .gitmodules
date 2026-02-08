@@ -1,3 +1,0 @@
-[submodule "gripper_feetech/include/gripper_feetech/Feetech-STSServo"]
-	path = gripper_feetech/include/gripper_feetech/Feetech-STSServo
-	url = https://github.com/KalanaRatnayake/Feetech-STSServo.git

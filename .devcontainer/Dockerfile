@@ -105,7 +105,7 @@ WORKDIR /dependencies
 RUN wget https://www.openssl.org/source/openssl-1.1.1o.tar.gz && \
     tar -zxvf openssl-1.1.1o.tar.gz
 
-WORKDIR openssl-1.1.1o
+WORKDIR /dependencies/openssl-1.1.1o
 RUN ./config  && \
     make  && \
     make test  && \
