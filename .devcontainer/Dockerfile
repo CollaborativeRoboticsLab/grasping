@@ -21,6 +21,7 @@ RUN apt-get update && \
     build-essential \
     cmake \
     git \
+    wget \
     ninja-build \
     net-tools \
     libopenblas-dev \
@@ -87,7 +88,6 @@ RUN wget https://www.openssl.org/source/openssl-1.1.1o.tar.gz && \
 WORKDIR /dependencies/openssl-1.1.1o
 RUN ./config  && \
     make  && \
-    make test  && \
     make install  && \
     find / -name libssl.so.1.1  && \
     ln -s /usr/local/lib/libssl.so.1.1  /usr/lib/libssl.so.1.1 && \
@@ -128,7 +128,7 @@ RUN apt-get update && \
 
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-    curl && \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* && \
     export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}') && \

@@ -29,3 +29,7 @@ docker container uses following command to unblock system package installation.
 ```bash
 python -m pip config set global.break-system-packages true
 ```
+
+## 4. Feature ID not being fixed for docker
+
+This devcontainer uses the `"--network=host"` tag to use host's machines network interface. This is required for discovering and connecting to other ROS nodes. As an added benifit, the generated feature id utilizes Host' network details to generate the feature id allowing it to be consistent across container rebuilds.

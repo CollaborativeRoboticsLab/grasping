@@ -30,7 +30,8 @@ Once the Container is built, run the `license_checker` function from anygrasp_sd
 Following commands will help to run the `license_checker` within the dev container.
 
 ```bash
-./dependencies/anygrasp_sdk/license_registration/license_checker -f
+cd /dependencies/anygrasp_sdk/license_registration/
+./license_checker -f
 ```
 
 Once you fill the form and receive the license zip file, unzip and copy it to the `/license` folder within the cloned repo (Not inside the container). Then rebuild the container. This will automatically copy the license content into the following locations of the container,
