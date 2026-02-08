@@ -140,9 +140,13 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
     ros-${ROS_DISTRO}-ros-base \
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
     ros-dev-tools  \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+## Set RMW implementation to CycloneDDS as it is the default and recommended for ROS 2 Jazzy
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 # Initialize rosdep as root
 RUN rosdep init && rosdep update
