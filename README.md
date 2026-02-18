@@ -19,37 +19,7 @@ Read here for [known issues and fixes](./docs/issues.md)
 
 ### Creating docker network
 
-This devcontainer is configured to attach to a **macvlan** network (Docker docs: https://docs.docker.com/engine/network/drivers/macvlan/).
-
-You must create the macvlan network on the **host** (outside the container) before rebuilding the devcontainer.
-
-1) Identify the host NIC that is connected to your robot/LAN (examples: `eth0`, `enp3s0`):
-
-```bash
-ip route | grep default
-```
-
-2) Create the Docker macvlan network (replace values to match your LAN):
-
-```bash
-docker network create -d macvlan \
-	--subnet=192.168.1.0/24 \
-	--gateway=192.168.1.1 \
-	-o parent=eth0 \
-	ur_macvlan
-```
-
-Notes:
-
-- `parent` must be a real host interface on the target subnet.
-- Choose an `--ip-range` that is **unused** on your network (or omit `--ip-range` to let Docker allocate from the subnet).
-- macvlan makes the container a “real” LAN participant, which is often helpful for ROS 2 discovery and talking to robot hardware.
-
-Cleanup:
-
-```bash
-docker network rm ur_macvlan
-```
+Create the docker [mavclan](https://docs.docker.com/engine/network/drivers/macvlan/) network following [these instructions](./docs/macvlan.md). This limits the host to Linux OS (Windows, WSL and MacOS not supported) but AnyGrasp Licensing requires this apprach when using a docker based implementation.
 
 ### Building container
 
@@ -84,8 +54,7 @@ cd /dependencies/anygrasp_sdk/license_registration/
 
 ### Adding model weights
 
-Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively and Rebuild the container.
-These will be loaded into following folders inside the container. 
+Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively and Rebuild the container. These will be loaded into following folders inside the container. 
 
 - `/dependencies/anygrasp_sdk/grasp_detection/log`       allows to run the grasp detection
 - `/dependencies/anygrasp_sdk/grasp_tracking/log`        allows to run the grasp tracking
@@ -97,7 +66,6 @@ This can also be done alongside the prior `Adding Licesne` step.
 ### Basic testing
 
 Try running the `grasp_detection/demo.py` and `grasp_tracking/demo.py` to confirm the process pipeline is working
-
 
 ## Usage
 
