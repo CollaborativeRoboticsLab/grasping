@@ -17,6 +17,40 @@ Read here for [known issues and fixes](./docs/issues.md)
 
 ## Setup
 
+### Creating docker network
+
+This devcontainer is configured to attach to a **macvlan** network (Docker docs: https://docs.docker.com/engine/network/drivers/macvlan/).
+
+You must create the macvlan network on the **host** (outside the container) before rebuilding the devcontainer.
+
+1) Identify the host NIC that is connected to your robot/LAN (examples: `eth0`, `enp3s0`):
+
+```bash
+ip route | grep default
+```
+
+2) Create the Docker macvlan network (replace values to match your LAN):
+
+```bash
+docker network create -d macvlan \
+	--subnet=192.168.1.0/24 \
+	--gateway=192.168.1.1 \
+	-o parent=eth0 \
+	ur_macvlan
+```
+
+Notes:
+
+- `parent` must be a real host interface on the target subnet.
+- Choose an `--ip-range` that is **unused** on your network (or omit `--ip-range` to let Docker allocate from the subnet).
+- macvlan makes the container a “real” LAN participant, which is often helpful for ROS 2 discovery and talking to robot hardware.
+
+Cleanup:
+
+```bash
+docker network rm ur_macvlan
+```
+
 ### Building container
 
 Install VSCode and add the [DevContainer addon](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
@@ -72,5 +106,37 @@ Try running the `grasp_detection/demo.py` and `grasp_tracking/demo.py` to confir
 Use the following command to start the camera
 
 ```bash
+ros2 launch ur_launch camera.launch.py
+```
 
+### Starting the anygrasp detection system
+
+Use the following command to start the anygrasp system
+
+```bash
+ros2 launch anygrasp_ros detection.launch.py
+```
+
+### Start the gripper
+
+Use the following command to start the gripper controller
+
+```bash
+ros2 launch gripper_ros dynamixel.launch.py
+```
+
+### Start the UR robot
+
+Use the following command to start the ur moveit control
+
+```bash
+ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=192.168.56.101
+```
+
+## Start the gripping process
+
+Use the following command to start the gripping process
+
+```bash
+ros2 launch ur_launch grip.launch.py server_mode:=false
 ```

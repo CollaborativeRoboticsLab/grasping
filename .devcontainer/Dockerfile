@@ -154,9 +154,11 @@ RUN rosdep init && rosdep update
 ## Install UR robot packages and Realsense packages
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
+    python3-serial \
     ros-${ROS_DISTRO}-ur \
     ros-${ROS_DISTRO}-librealsense2* \
     ros-${ROS_DISTRO}-realsense2-* \
+    ros-${ROS_DISTRO}-dynamixel-sdk \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
