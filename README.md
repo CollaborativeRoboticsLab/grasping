@@ -3,15 +3,15 @@
 This package provides grasping functionality for a [UR robot](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
 
 The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](https://hub.docker.com/layers/pytorch/pytorch/2.10.0-cuda12.6-cudnn9-devel/images/sha256-df80e10d07cd114c5f33380e3df7b6c5a3caab8481f68509ea652a7c0908316e) image and provides
-    - Pytorch 2.10
-    - CUDA 12.6
-    - CUDNN9
-    - ROS Jazzy (Base container is ubuntu 24.04)
-    - [chenxi-wang/MinkowskiEngine](https://github.com/chenxi-wang/MinkowskiEngine.git)
-    - [CollaborativeRoboticsLab/graspnetAPI](https://github.com/CollaborativeRoboticsLab/graspnetAPI.git)
-    - [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
-    - [Realsense packages](https://github.com/realsenseai/realsense-ros)
-    - [UR packages](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver)
+- Pytorch 2.10
+- CUDA 12.6
+- CUDNN9
+- ROS Jazzy (Base container is ubuntu 24.04)
+- [chenxi-wang/MinkowskiEngine](https://github.com/chenxi-wang/MinkowskiEngine.git)
+- [CollaborativeRoboticsLab/graspnetAPI](https://github.com/CollaborativeRoboticsLab/graspnetAPI.git)
+- [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
+- [Realsense packages](https://github.com/realsenseai/realsense-ros)
+- [UR packages](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver)
 
 Read here for [known issues and fixes](./docs/issues.md)
 
@@ -44,7 +44,8 @@ Once you fill the form and receive the license zip file, unzip and copy it to th
 To check the license run following command
 
 ```bash
-./dependencies/anygrasp_sdk/license_registration/license_checker -c license/licenseCfg.json
+cd /dependencies/anygrasp_sdk/license_registration/
+./license_checker -c license/licenseCfg.json
 ```
 
 ### Adding model weights
@@ -62,3 +63,14 @@ This can also be done alongside the prior `Adding Licesne` step.
 ### Basic testing
 
 Try running the `grasp_detection/demo.py` and `grasp_tracking/demo.py` to confirm the process pipeline is working
+
+
+## Usage
+
+### Starting the camera
+
+Use the following command to start the camera
+
+```bash
+
+```
