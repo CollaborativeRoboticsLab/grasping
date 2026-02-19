@@ -72,6 +72,20 @@ WORKDIR /dependencies/anygrasp_sdk/pointnet2
 RUN python -m pip install --no-cache-dir --no-build-isolation .
 
 ############################################################################
+####        Rename and move the libraries 
+############################################################################
+
+WORKDIR /dependencies/precompiled_libs
+
+# Move library files
+RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled_libs/gsnet.so
+RUN cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled_libs/lib_cxx.so
+RUN cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled_libs/tracker.so
+
+# update python syspath
+ENV PYTHONPATH="${PYTHONPATH}:/dependencies/precompiled_libs"
+
+############################################################################
 ####        Fix missing OpenSSL 1.1 / libcrypto.so.1.1
 ############################################################################
 
@@ -151,56 +165,37 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 # Initialize rosdep as root
 RUN rosdep init && rosdep update
 
-## Install UR robot packages and Realsense packages
+############################################################################
+####        Install Realsense packages
+############################################################################
+
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-    python3-serial \
-    ros-${ROS_DISTRO}-ur \
     ros-${ROS_DISTRO}-librealsense2* \
     ros-${ROS_DISTRO}-realsense2-* \
-    ros-${ROS_DISTRO}-dynamixel-sdk \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 ############################################################################
-####    Move library, license and weight files to allow demo testing
+####        Install UR robot packages
 ############################################################################
 
-# Move library files
-WORKDIR /dependencies/anygrasp_sdk/grasp_detection
-RUN cp gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
-    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
-
-WORKDIR /dependencies/anygrasp_sdk/grasp_tracking
-RUN cp tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
-    cp ../license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
-
-## Copy license folder
-COPY license /dependencies/anygrasp_sdk/license_registration/license
-COPY license /dependencies/anygrasp_sdk/grasp_detection/license
-COPY license /dependencies/anygrasp_sdk/grasp_tracking/license
-
-## Copy weight files
-COPY weights/detection /dependencies/anygrasp_sdk/grasp_detection/log
-COPY weights/tracking /dependencies/anygrasp_sdk/grasp_tracking/log
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+    ros-${ROS_DISTRO}-ur \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 ############################################################################
-####    Move library, license and weight files to ros2 workspace root
+####        Install grippers packages
 ############################################################################
 
-WORKDIR /home/ubuntu/colcon_ws/
-
-# Move library files internally
-RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so gsnet.so && \
-    cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so tracker.so && \
-    cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so lib_cxx.so
-
-## Copy license folder from build context into the image
-COPY license /home/ubuntu/colcon_ws/license
-
-## Copy weight files from build context into the image
-COPY weights/detection /home/ubuntu/colcon_ws/weights/detection
-COPY weights/tracking /home/ubuntu/colcon_ws/weights/tracking
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+    python3-serial \
+    ros-${ROS_DISTRO}-dynamixel-sdk \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 ############################################################################
 ####      Add vscode user
