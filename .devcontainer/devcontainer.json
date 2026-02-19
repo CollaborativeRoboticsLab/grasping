@@ -8,8 +8,8 @@
   },
   "runArgs": [
     "--privileged",
-    "--network=ur_macvlan",
-    // "--network=bridge",
+    // "--network=ur_macvlan",
+    "--network=bridge",
     "--mac-address=02:42:de:ad:be:ef",
     "--gpus",
     "all"
