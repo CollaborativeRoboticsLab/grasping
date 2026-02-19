@@ -46,15 +46,15 @@ To check the license run following command
 
 ```bash
 cd /dependencies/anygrasp_sdk/license_registration/
-./license_checker -c /home/ubuntu/colcon_ws/license/licenseCfg.json
+./license_checker -c /dependencies/precompiled/license/licenseCfg.json
 ```
 
 ### Adding model weights
 
 Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively. These will be mounted into following folders inside the container. 
 
-- `/home/ubuntu/colcon_ws/weights/detection`             allows to run the ros2 packages
-- `/home/ubuntu/colcon_ws/weights/tracking`              allows to run the ros2 packages
+- `/dependencies/precompiled/weights/detection`             allows to run the ros2 packages
+- `/dependencies/precompiled/weights/tracking`              allows to run the ros2 packages
 
 This can also be done alongside the prior `Adding Licesne` step.
 
