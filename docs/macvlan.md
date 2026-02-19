@@ -17,6 +17,7 @@ docker network create -d macvlan \
 	--subnet=10.0.0.0/24 \
 	--gateway=10.0.0.1 \
 	-o parent=enp2s0 \
+  	-o mtu=1500 \
 	ur_macvlan
 ```
 
