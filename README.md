@@ -19,7 +19,14 @@ Read here for [known issues and fixes](./docs/issues.md)
 
 ### Creating docker network
 
-Create the docker [mavclan](https://docs.docker.com/engine/network/drivers/macvlan/) network following [these instructions](./docs/macvlan.md). This limits the host to Linux OS (Windows, WSL and MacOS not supported) but AnyGrasp Licensing requires this apprach when using a docker based implementation.
+To have a stable feature id for the anygrasp license, we utilize built-in docker network `bridge` and a fixed mac address. For the dev container, this is represented by following config. Change the given mac address as required.
+
+```json
+  "runArgs": [
+    "--network=bridge",
+    "--mac-address=02:42:de:ad:be:ef"
+  ]
+```
 
 ### Building container
 
@@ -34,24 +41,22 @@ Once the Container is built, run the `license_checker` function from anygrasp_sd
 Following commands will help to run the `license_checker` within the dev container.
 
 ```bash
-cd /dependencies/anygrasp_sdk/license_registration/
-./license_checker -f
+/dependencies/anygrasp_sdk/license_registration/license_checker -f
 ```
 
-Once you fill the form and receive the license zip file, unzip and copy it to the `/license` folder within the cloned repo (Not inside the container). Devcontainer has been configured to mount the license folder into the following locations of the container,
+Once you fill the form and receive the license zip file, unzip and copy it to the `/license` folder within the cloned repo (Not inside the container). Devcontainer has been configured to mount the license folder into the following location of the container,
 
-- `/home/ubuntu/colcon_ws/license`
+- `/dependencies/precompiled/license`
 
 To check the license run following command
 
 ```bash
-cd /dependencies/anygrasp_sdk/license_registration/
-./license_checker -c /dependencies/precompiled/license/licenseCfg.json
+/dependencies/anygrasp_sdk/license_registration/license_checker -c /dependencies/precompiled/license/licenseCfg.json
 ```
 
 ### Adding model weights
 
-Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders respectively. These will be mounted into following folders inside the container. 
+Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders within the cloned repo (Not inside the container) respectively. These will be mounted into following folders inside the container. 
 
 - `/dependencies/precompiled/weights/detection`             allows to run the ros2 packages
 - `/dependencies/precompiled/weights/tracking`              allows to run the ros2 packages
@@ -93,7 +98,13 @@ ros2 launch gripper_ros dynamixel.launch.py
 Use the following command to start the ur moveit control
 
 ```bash
-ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=192.168.56.101
+ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
+```
+
+### Start UR10 control with rviz
+
+```bash
+ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur10 launch_rviz:=true
 ```
 
 ## Start the gripping process

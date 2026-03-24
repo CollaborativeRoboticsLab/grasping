@@ -8,7 +8,6 @@
   },
   "runArgs": [
     "--privileged",
-    // "--network=ur_macvlan",
     "--network=bridge",
     "--mac-address=02:42:de:ad:be:ef",
     "--gpus",
@@ -21,6 +20,7 @@
     "source=${localWorkspaceFolder}/license,target=/dependencies/precompiled/license,type=bind",
     "source=${localWorkspaceFolder}/weights/detection,target=/dependencies/precompiled/weights/detection,type=bind",
     "source=${localWorkspaceFolder}/weights/tracking,target=/dependencies/precompiled/weights/tracking,type=bind",
-    "source=/dev,target=/dev,type=bind"
+    "source=/dev,target=/dev,type=bind",
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
   ]
 }
