@@ -60,7 +60,7 @@ WORKDIR /dependencies
 RUN git clone https://github.com/CollaborativeRoboticsLab/graspnetAPI.git
 
 WORKDIR /dependencies/graspnetAPI
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install "numpy<2.0" --no-cache-dir .
 
 ############################################################################
 ####        Install AnyGrasp SDK
@@ -70,7 +70,7 @@ WORKDIR /dependencies
 RUN git clone https://github.com/graspnet/anygrasp_sdk.git
 
 WORKDIR /dependencies/anygrasp_sdk
-RUN python -m pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install "numpy<2.0" --no-cache-dir -r requirements.txt
 
 ############################################################################
 ####        Install pointnet2
@@ -82,7 +82,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 ## it, leading to ModuleNotFoundError. So  --no-build-isolation is needed.
 
 WORKDIR /dependencies/anygrasp_sdk/pointnet2
-RUN python -m pip install --no-cache-dir --no-build-isolation .
+RUN python -m pip install "numpy<2.0" --no-cache-dir --no-build-isolation .
 
 ############################################################################
 ####        Rename and move the libraries 

@@ -74,6 +74,7 @@ Try running the `grasp_detection/demo.py` and `grasp_tracking/demo.py` to confir
 Use the following command to start the camera
 
 ```bash
+source install/setup.bash
 ros2 launch ur_launch camera.launch.py
 ```
 
@@ -82,6 +83,7 @@ ros2 launch ur_launch camera.launch.py
 Use the following command to start the anygrasp system
 
 ```bash
+source install/setup.bash
 ros2 launch anygrasp_ros detection.launch.py
 ```
 
@@ -90,6 +92,7 @@ ros2 launch anygrasp_ros detection.launch.py
 Use the following command to start the gripper controller
 
 ```bash
+source install/setup.bash
 ros2 launch gripper_ros dynamixel.launch.py
 ```
 
@@ -98,12 +101,14 @@ ros2 launch gripper_ros dynamixel.launch.py
 Use the following command to start the ur moveit control
 
 ```bash
+source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
 ```
 
 ### Start UR10 control with rviz
 
 ```bash
+source install/setup.bash
 ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur10 launch_rviz:=true
 ```
 
@@ -112,5 +117,6 @@ ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur10 launch_rviz:=true
 Use the following command to start the gripping process
 
 ```bash
+source install/setup.bash
 ros2 launch ur_launch grip.launch.py server_mode:=false
 ```
