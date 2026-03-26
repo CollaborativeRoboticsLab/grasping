@@ -63,9 +63,7 @@ Copy the detection and tracking model weights into `weights/detection` and `weig
 
 This can also be done alongside the prior `Adding Licesne` step.
 
-### Basic testing
-
-Try running the `grasp_detection/demo.py` and `grasp_tracking/demo.py` to confirm the process pipeline is working
+[Read more information on testing the anygrasp installation](./docs/testing.md)
 
 ## Usage
 
