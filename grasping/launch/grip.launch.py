@@ -49,9 +49,9 @@ def generate_launch_description() -> LaunchDescription:
 	)
 
 	grasping_node = Node(
-		package="ur_grasping",
-		executable="ur_grasping_node",
-		name="ur_grasping_node",
+		package="grasping",
+		executable="grasping_node",
+		name="grasping_node",
 		output="screen",
 		parameters=[
 			{

@@ -15,74 +15,71 @@ The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](http
 
 Read here for [known issues and fixes](./docs/issues.md)
 
-## Setup
+## System Architecture
 
-### Creating docker network
+![System Architecture](./docs/images/system.png)
 
-To have a stable feature id for the anygrasp license, we utilize built-in docker network `bridge` and a fixed mac address. For the dev container, this is represented by following config. Change the given mac address as required.
+### Camera Driver
 
-```json
-  "runArgs": [
-    "--network=bridge",
-    "--mac-address=02:42:de:ad:be:ef"
-  ]
-```
+As show in the system architecture diagram, we utilize RGB and Depth images to identify objects and their grasping poses. In this graping framework, instructions related to setup, configuration and customization are in the linked file.
 
-### Building container
+- [Realsense Camera](./docs/camera/realsense.md)
+
+### Arm Controller
+
+In this grasping framework, we utilize following manipulators. Instructions related to setup, configuration and customization are in the linked file.
+
+- [UR Manipulator](./docs/manipulator/universal.md)
+- [TM Manipulator](./docs/manipulator/techman.md)
+
+### Gripper Controller
+
+In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and over controllers are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
+
+- [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
+- [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
+
+### Anygrasp Node
+
+In this grasping framework we utilize anygrasp for grasp pose detection. We have configured the devcontainer to install the anygraph along with its dependencies. License need to be requested and loaded as described following instructions [docs/anygrasp.md](./docs/anygrasp.md).
+
+### Grasping Node
+
+Grasping node is reponsible for guiding the robot arm to selected grasp pose (from Anygrasp Node) and Controlling the gripper to grasp. More information about the implementation can be found in [docs/grasping.md](./docs/grasping.md)
+
+## Building container
 
 Install VSCode and add the [DevContainer addon](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
 
 Clone this repo and open using VSCode. Generally VScode should auto detect, if not press Shift+Ctrl+P to open the command palette and select "DevContainer: Rebuild and Reopen the container" option.
 
-### Adding license
+Following are quick commands to match our specific setup. Read relevant sections under `System architecture` to find other supported commands.
 
-Once the Container is built, run the `license_checker` function from anygrasp_sdk and apply for the license following the steps from [here](https://github.com/graspnet/anygrasp_sdk/blob/main/license_registration/README.md). 
-
-Following commands will help to run the `license_checker` within the dev container.
-
-```bash
-/dependencies/anygrasp_sdk/license_registration/license_checker -f
-```
-
-Once you fill the form and receive the license zip file, unzip and copy it to the `/license` folder within the cloned repo (Not inside the container). Devcontainer has been configured to mount the license folder into the following location of the container,
-
-- `/dependencies/precompiled/license`
-
-To check the license run following command
-
-```bash
-/dependencies/anygrasp_sdk/license_registration/license_checker -c /dependencies/precompiled/license/licenseCfg.json
-```
-
-### Adding model weights
-
-Copy the detection and tracking model weights into `weights/detection` and `weights/tracking` folders within the cloned repo (Not inside the container) respectively. These will be mounted into following folders inside the container. 
-
-- `/dependencies/precompiled/weights/detection`             allows to run the ros2 packages
-- `/dependencies/precompiled/weights/tracking`              allows to run the ros2 packages
-
-This can also be done alongside the prior `Adding Licesne` step.
-
-[Read more information on testing the anygrasp installation](./docs/testing.md)
-
-## Usage
+## Quick Commands
 
 ### Starting the camera
 
-Use the following command to start the camera
+Use the following command to start the realsense D435 camera. For other systems, look at [documentation](./docs/camera/)
 
 ```bash
 source install/setup.bash
-ros2 launch ur_launch camera.launch.py
+ros2 launch grasping_camera d435.launch.py
 ```
 
-### Starting the anygrasp detection system
+### Start the Manipulator
 
-Use the following command to start the anygrasp system
+Use the following command to start the UR robot control
 
 ```bash
 source install/setup.bash
-ros2 launch anygrasp_ros detection.launch.py
+ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
+```
+
+or use the following command to start the TM robot control
+
+```bash
+source install/setup.bash
+ros2 launch tm12x_moveit_config tm12x_run_move_group.launch.py
 ```
 
 ### Start the gripper
@@ -94,27 +91,20 @@ source install/setup.bash
 ros2 launch gripper_ros dynamixel.launch.py
 ```
 
-### Start the UR robot
+### Starting the anygrasp detection system
 
-Use the following command to start the ur moveit control
-
-```bash
-source install/setup.bash
-ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
-```
-
-### Start UR10 control with rviz
+Use the following command to start the anygrasp system
 
 ```bash
 source install/setup.bash
-ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur10 launch_rviz:=true
+ros2 launch anygrasp_ros detection.launch.py
 ```
 
-## Start the gripping process
+### Start the gripping process
 
 Use the following command to start the gripping process
 
 ```bash
 source install/setup.bash
-ros2 launch ur_launch grip.launch.py server_mode:=false
+ros2 launch grasping grip.launch.py server_mode:=false
 ```
