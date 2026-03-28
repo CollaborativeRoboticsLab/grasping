@@ -1,4 +1,4 @@
-# ur10-grasping
+# Grasping Stack
 
 This package provides grasping functionality for a [UR robot](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
 
