@@ -12,6 +12,7 @@ The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](http
 - [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
 - [Realsense packages](https://github.com/realsenseai/realsense-ros)
 - [UR packages](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver)
+- [TM packages](https://github.com/CollaborativeRoboticsLab/omron_arm)
 
 Read here for [known issues and fixes](./docs/issues.md)
 
@@ -34,18 +35,18 @@ In this grasping framework, we utilize following manipulators. Instructions rela
 
 ### Gripper Controller
 
-In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and over controllers are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
+In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
 
 - [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
 - [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
 
 ### Anygrasp Node
 
-In this grasping framework we utilize anygrasp for grasp pose detection. We have configured the devcontainer to install the anygraph along with its dependencies. License need to be requested and loaded as described following instructions [docs/anygrasp.md](./docs/anygrasp.md).
+In this grasping framework we utilize anygrasp for grasp pose detection. We have configured the devcontainer to install the anygraph along with its dependencies. Instructions for license requesting, license loading, node customization and starting can be found in [docs/anygrasp.md](./docs/anygrasp.md).
 
 ### Grasping Node
 
-Grasping node is reponsible for guiding the robot arm to selected grasp pose (from Anygrasp Node) and Controlling the gripper to grasp. More information about the implementation can be found in [docs/grasping.md](./docs/grasping.md)
+Grasping node is reponsible for guiding the robot arm to selected grasp pose (from Anygrasp Node) and Controlling the gripper to grasp. More information about the implementation and node starting can be found in [docs/grasping.md](./docs/grasping.md)
 
 ## Building container
 
@@ -57,9 +58,11 @@ Following are quick commands to match our specific setup. Read relevant sections
 
 ## Quick Commands
 
+Following commands are for quick launching our system. Use relevant commands if components differ.
+
 ### Starting the camera
 
-Use the following command to start the realsense D435 camera. For other systems, look at [documentation](./docs/camera/)
+Use the following command to start the realsense D435 camera.
 
 ```bash
 source install/setup.bash
