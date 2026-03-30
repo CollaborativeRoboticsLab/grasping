@@ -57,7 +57,6 @@ def generate_launch_description() -> LaunchDescription:
 			{
 				"server_mode": LaunchConfiguration("server_mode"),
 				"anygrasp_service": LaunchConfiguration("anygrasp_service"),
-				"anygrasp_frame": camera_frame,
 				"move_group_action_name": LaunchConfiguration("move_group_action_name"),
 				"planning_group": LaunchConfiguration("planning_group"),
 				"planning_frame": LaunchConfiguration("planning_frame"),

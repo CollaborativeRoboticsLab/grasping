@@ -49,11 +49,11 @@ In this repo, AnyGrasp nodes expose services:
 - `detection` (single-shot detection)
 - `tracking` (tracking-based output)
 
-Important detail: the service response contains a list of `geometry_msgs/Pose` with **no header**. This node assigns a frame using the `anygrasp_frame` parameter.
+Important detail: the service response contains a list of `geometry_msgs/PoseStamped`. Each pose keeps the source point cloud header, so the camera frame comes directly from AnyGrasp.
 
 ### 2) Transform to the planning frame
 
-The pipeline transforms the pose from `anygrasp_frame` into `planning_frame` using TF.
+The pipeline transforms the returned pose frame into `planning_frame` using TF.
 
 This requires a connected TF tree that relates the robot base/planning frame to the camera frame. The `launch/grip.launch.py` file publishes typical wrist-mounted static transforms (end-effector → camera and end-effector → gripper).
 
@@ -98,9 +98,9 @@ This launch file starts the pipeline node and publishes two static transforms:
 
 Why static transforms?
 
-AnyGrasp returns `geometry_msgs/Pose` without a header. The pipeline assumes that pose is in `anygrasp_frame` and uses TF to transform:
+AnyGrasp returns `geometry_msgs/PoseStamped` with the original pointcloud header. The pipeline uses that frame directly and transforms:
 
-`anygrasp_frame` → `planning_frame`
+`poses[0].header.frame_id` → `planning_frame`
 
 If your camera is not rigidly mounted to the end-effector, do not use static transforms.
 
@@ -189,7 +189,7 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 ### AnyGrasp
 
 - `anygrasp_service` (string, default `detection`): service name to call
-- `anygrasp_frame` (string, default `camera_color_optical_frame`): frame the returned pose is assumed to be in
+- Returned grasp poses already include `header.frame_id` and `header.stamp` from the source pointcloud
 
 ### TF / planning frames
 
@@ -225,13 +225,13 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 For a full run, you must have:
 
 1. AnyGrasp node running (providing `detection` or `tracking` service)
-2. A TF tree connecting `planning_frame` and `anygrasp_frame`
+2. A TF tree connecting `planning_frame` and the pointcloud frame reported in the returned grasp pose header
 3. MoveIt MoveGroup action server running (`move_group_action_name`)
 4. A gripper action server providing `/close_gripper` (Dynamixel or Feetech)
 
 ## Troubleshooting
 
 - **AnyGrasp call fails / returns no pose**: check the AnyGrasp node logs and confirm the service name (`ros2 service list`).
-- **TF lookup fails**: verify that `planning_frame` and `anygrasp_frame` exist and are connected (`tf2_echo`).
+- **TF lookup fails**: verify that `planning_frame` and the grasp pose header frame exist and are connected (`tf2_echo`).
 - **MoveIt action not available**: list actions (`ros2 action list`) and set `move_group_action_name` accordingly.
 - **Gripper action not available**: start one of the gripper drivers and verify `/close_gripper` exists.

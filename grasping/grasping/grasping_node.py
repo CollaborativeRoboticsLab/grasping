@@ -72,7 +72,6 @@ class GraspingNode(Node):
 
         # AnyGrasp
         self.declare_parameter("anygrasp_service", "detection")
-        self.declare_parameter("anygrasp_frame", "camera_color_optical_frame")
 
         # MoveIt
         self.declare_parameter("move_group_action_name", "move_action")
@@ -199,13 +198,7 @@ class GraspingNode(Node):
             self.get_logger().warn(f"AnyGrasp failed: {resp.message}")
             return None
 
-        pose = resp.poses[0]
-        pose_stamped = PoseStamped()
-        pose_stamped.header.stamp = self.get_clock().now().to_msg()
-        pose_stamped.header.frame_id = str(self.get_parameter("anygrasp_frame").value)
-        pose_stamped.pose = pose
-
-        return self._transform_pose_to_planning_frame(pose_stamped)
+        return self._transform_pose_to_planning_frame(resp.poses[0])
 
     def _transform_pose_to_planning_frame(self, pose: PoseStamped) -> PoseStamped:
         if do_transform_pose is None:
