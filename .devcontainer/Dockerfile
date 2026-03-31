@@ -179,6 +179,15 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 RUN rosdep init && rosdep update
 
 ############################################################################
+####        Install Anygrasp ROS packages
+############################################################################
+
+# make sure folders exist
+WORKDIR /home/ubuntu/colcon_ws/src
+
+RUN git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git
+
+############################################################################
 ####        Install Realsense packages
 ############################################################################
 
@@ -210,6 +219,42 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+WORKDIR /home/ubuntu/colcon_ws/src/
+
+RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git
+
+############################################################################
+####        Install omron moma packages
+############################################################################
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install --no-install-recommends -y \
+    ros-${ROS_DISTRO}-teleop-twist-joy \
+    ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-moveit \
+    ros-${ROS_DISTRO}-controller-manager \
+    ros-${ROS_DISTRO}-joint-trajectory-controller \
+    ros-${ROS_DISTRO}-joint-state-broadcaster \
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
+    ros-${ROS_DISTRO}-joint-state-publisher \
+    ros-${ROS_DISTRO}-joint-state-publisher-gui \
+    ros-${ROS_DISTRO}-vision-opencv \
+    ros-${ROS_DISTRO}-navigation2 \
+    ros-${ROS_DISTRO}-nav2-bringup \
+    ros-${ROS_DISTRO}-slam-toolbox \
+    qtbase5-dev \
+    qtdeclarative5-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# make sure folders exist
+WORKDIR /home/ubuntu/colcon_ws/src/omron
+
+RUN git clone https://github.com/CollaborativeRoboticsLab/omron_arm.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/omron_base.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git 
+
 ############################################################################
 ####      Add vscode user
 ############################################################################
@@ -235,19 +280,5 @@ USER $USERNAME
 
 # Source the ROS setup file
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
-
-# make sure folders exist
-WORKDIR /home/ubuntu/colcon_ws/src
-
-## Clone gripper packages (grippers, anygrasp_ros, omron_arm) from the CollaborativeRoboticsLab GitHub repo.
-RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git
-
-# make sure folders exist
-WORKDIR /home/ubuntu/colcon_ws/src/omron
-
-RUN git clone https://github.com/CollaborativeRoboticsLab/omron_arm.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/omron_base.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git 
 
 WORKDIR /

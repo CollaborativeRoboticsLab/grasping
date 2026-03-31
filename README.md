@@ -78,12 +78,14 @@ source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
 ```
 
-or use the following command to start the TM robot control
+or use the following command to start the Omron Moma robot control
 
 ```bash
 source install/setup.bash
-ros2 launch tm12x_moveit_config tm12x_run_move_group.launch.py
+ros2 launch moma_ros ld250_tm12x.launch.py use_rviz:=true
 ```
+
+Or utilize any other supported manipulator by launching the relevant launch file.
 
 ### Start the gripper
 
