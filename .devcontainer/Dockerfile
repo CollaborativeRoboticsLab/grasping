@@ -241,7 +241,13 @@ WORKDIR /home/ubuntu/colcon_ws/src
 
 ## Clone gripper packages (grippers, anygrasp_ros, omron_arm) from the CollaborativeRoboticsLab GitHub repo.
 RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/omron_arm.git
+    git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git
+
+# make sure folders exist
+WORKDIR /home/ubuntu/colcon_ws/src/omron
+
+RUN git clone https://github.com/CollaborativeRoboticsLab/omron_arm.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/omron_base.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git 
 
 WORKDIR /
