@@ -251,8 +251,8 @@ RUN apt-get update && \
 # make sure folders exist
 WORKDIR /home/ubuntu/colcon_ws/src/omron
 
-RUN git clone https://github.com/CollaborativeRoboticsLab/omron_arm.git && \
-    git clone https://github.com/CollaborativeRoboticsLab/omron_base.git && \
+RUN git clone https://github.com/CollaborativeRoboticsLab/tmr_ros2.git && \
+    git clone https://github.com/CollaborativeRoboticsLab/omron_amr.git && \
     git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git 
 
 ############################################################################
@@ -275,10 +275,15 @@ RUN apt-get update && \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
+RUN mkdir -p /home/ubuntu/colcon_ws/src /home/ubuntu/colcon_ws/build /home/ubuntu/colcon_ws/install /home/ubuntu/colcon_ws/log && \
+    chown -R $USERNAME:$USERNAME /home/ubuntu/colcon_ws
+
 # Switch from root to user
 USER $USERNAME
 
 # Source the ROS setup file
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
+
+WORKDIR /home/ubuntu/colcon_ws/
 
 WORKDIR /

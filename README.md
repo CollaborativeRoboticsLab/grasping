@@ -12,7 +12,7 @@ The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](http
 - [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
 - [Realsense packages](https://github.com/realsenseai/realsense-ros)
 - [UR packages](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver)
-- [TM packages](https://github.com/CollaborativeRoboticsLab/omron_arm)
+- [TM packages](https://github.com/CollaborativeRoboticsLab/tmr_ros2)
 
 Read here for [known issues and fixes](./docs/issues.md)
 
@@ -82,7 +82,7 @@ or use the following command to start the Omron Moma robot control
 
 ```bash
 source install/setup.bash
-ros2 launch moma_ros ld250_tm12x.launch.py use_rviz:=true
+ros2 launch moma_ros ld250_tm12x.launch.py use_rviz:=true use_base:=false
 ```
 
 Or utilize any other supported manipulator by launching the relevant launch file.

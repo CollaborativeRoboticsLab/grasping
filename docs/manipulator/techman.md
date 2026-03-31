@@ -4,7 +4,7 @@
 
 We have configured the devcontainer to install the drivers required by the ur robots during the build process. 
 
-If you are setting this up yourself (outside the devcontainer) and using a Techman Robot Manipulator, follow the official instructions [here](https://github.com/CollaborativeRoboticsLab/omron_arm).
+If you are setting this up yourself (outside the devcontainer) and using a Techman Robot Manipulator, follow the official instructions [here](https://github.com/CollaborativeRoboticsLab/tmr_ros2).
 
 ## Calibration
 
