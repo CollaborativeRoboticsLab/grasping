@@ -284,6 +284,4 @@ USER $USERNAME
 # Source the ROS setup file
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
 
-WORKDIR /home/ubuntu/colcon_ws/
-
 WORKDIR /

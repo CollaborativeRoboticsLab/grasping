@@ -1,0 +1,21 @@
+version: 1
+shapes:
+  rectangle:
+    display_name: Rectangular prism
+    geometry_type: box
+    description: Capture the four top-face corners in order around the object.
+    point_labels:
+      - corner_1
+      - corner_2
+      - corner_3
+      - corner_4
+  cylinder:
+    display_name: Cylinder
+    geometry_type: cylinder
+    description: Capture the top-face center, then four rim points around the cylinder.
+    point_labels:
+      - center
+      - rim_1
+      - rim_2
+      - rim_3
+      - rim_4
