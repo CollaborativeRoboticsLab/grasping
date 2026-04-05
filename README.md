@@ -53,7 +53,7 @@ The grasping pipeline handles two roles:
 
 Related documentation:
 
-- [Control Pipeline](./docs/grasping.md): pipeline modes, Trigger service usage, launch flow, and `grasping_node` parameters
+- [Control Pipeline](./docs/control/grasping.md): pipeline modes, Trigger service usage, launch flow, and `grasping_node` parameters
 - [Arm Control](./docs/control/arm_control.md): `MoveToPose` action interface, planning-scene loading, workspace-area filtering, and RViz marker visualization
 - [Workspace Creation](./docs/control/workspace_creation.md): interactive calibration flow for collision objects and the square workspace area
 
