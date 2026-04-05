@@ -9,17 +9,16 @@ from rclpy.node import Node
 
 from grasping_arm_control.common import (
 	Quaternion,
-	dict_to_pose,
 	load_yaml_dict,
 	normalize_quaternion,
 	resolve_config_path,
 	transform_pose_to_frame,
 )
+from grasping_arm_control.workspace_utils import collision_objects_from_workspace, point_in_workspace_area
 from grasping_msgs.action import MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
 	BoundingVolume,
-	CollisionObject,
 	Constraints,
 	MotionPlanRequest,
 	MoveItErrorCodes,
@@ -35,7 +34,14 @@ import tf2_ros
 
 
 class ArmControlNode(Node):
+	"""
+	@brief Action server that plans and executes arm motion requests with MoveIt.
+	"""
+
 	def __init__(self) -> None:
+		"""
+		@brief Initialize parameters, TF, MoveIt clients, and the action server.
+		"""
 		super().__init__('arm_control_node')
 
 		self.declare_parameter('action_name', 'move_arm_to_pose')
@@ -60,6 +66,7 @@ class ArmControlNode(Node):
 			str(self.get_parameter('workspace_config_path').value),
 			'workspace.yaml',
 		)
+		self._workspace_area: Optional[Dict[str, Any]] = None
 
 		# TF is only handled in this node so every incoming action goal is transformed into
 		# the planning frame before MoveIt constraints are constructed.
@@ -87,21 +94,45 @@ class ArmControlNode(Node):
 		# Load static workspace obstacles once at startup so every later arm action is planned
 		# against the calibrated scene written by workspace_calibration_node.py.
 		self._load_workspace_into_planning_scene()
+
 		self.get_logger().info(
 			f"Arm control action server ready on {self.get_parameter('action_name').value}"
 		)
 
 	def destroy_node(self) -> bool:
+		"""
+		@brief Destroy the action server before releasing the ROS node.
+
+		@return Result from the base destroy_node implementation.
+		"""
 		self._action_server.destroy()
 		return super().destroy_node()
 
 	def _goal_callback(self, _goal_request: MoveToPose.Goal) -> GoalResponse:
+		"""
+		@brief Accept all incoming MoveToPose goals.
+
+		@param _goal_request Requested goal payload.
+		@return Goal acceptance decision.
+		"""
 		return GoalResponse.ACCEPT
 
 	def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
+		"""
+		@brief Accept cancellation for active goals.
+
+		@param _goal_handle Goal handle requesting cancellation.
+		@return Cancel acceptance decision.
+		"""
 		return CancelResponse.ACCEPT
 
 	def _execute_move_to_pose(self, goal_handle: Any) -> MoveToPose.Result:
+		"""
+		@brief Transform, plan, and execute an incoming pose goal.
+
+		@param goal_handle Active action goal handle.
+		@return Action result describing the outcome.
+		"""
 		feedback = MoveToPose.Feedback()
 		target_pose = goal_handle.request.target_pose
 
@@ -117,9 +148,21 @@ class ArmControlNode(Node):
 				self._planning_frame,
 			)
 
+			feedback.state = 'validating_workspace_area'
+			goal_handle.publish_feedback(feedback)
+			if not self._target_pose_in_workspace_area(target_pose):
+				ok = False
+				message = 'Target pose lies outside the calibrated workspace area.'
+				result = MoveToPose.Result()
+				result.success = False
+				result.message = message
+				goal_handle.abort()
+				return result
+
 			feedback.state = 'planning_and_executing'
 			goal_handle.publish_feedback(feedback)
 			ok, message = self._move_to_pose(target_pose)
+
 		except Exception as exc:  # noqa: BLE001
 			ok = False
 			message = str(exc)
@@ -135,15 +178,37 @@ class ArmControlNode(Node):
 		return result
 
 	def _load_workspace_into_planning_scene(self) -> None:
+		"""
+		@brief Load persisted workspace obstacles into the MoveIt planning scene.
+		"""
 		# The workspace file is authored by the calibration node and already contains derived
 		# primitive geometry, so startup only needs to translate it into CollisionObjects.
-		workspace_config = load_yaml_dict(self._workspace_config_path, {'objects': []})
-		collision_objects = self._collision_objects_from_workspace(workspace_config)
+		workspace_config = load_yaml_dict(self._workspace_config_path, {'workspace_area': None, 'objects': []})
+		workspace_area = workspace_config.get('workspace_area')
+		if isinstance(workspace_area, dict):
+			self._workspace_area = workspace_area
+		else:
+			self._workspace_area = None
+			if workspace_area is not None:
+				self.get_logger().warn('Ignoring invalid workspace_area value; expected a mapping.')
+
+		collision_objects = collision_objects_from_workspace(
+			workspace_config,
+			self._planning_frame,
+			warn=self.get_logger().warn,
+		)
+
 		object_names = [collision_object.id for collision_object in collision_objects]
+
 		if object_names:
 			self.get_logger().info('Workspace objects loaded: ' + ', '.join(object_names))
 		else:
 			self.get_logger().info('Workspace config contains no collision objects.')
+
+		if self._workspace_area is not None:
+			self.get_logger().info('Workspace area filtering is enabled.')
+		else:
+			self.get_logger().info('Workspace area filtering is disabled.')
 
 		if not self._planning_scene_client.wait_for_service(timeout_sec=5.0):
 			self.get_logger().warn('ApplyPlanningScene service not available; skipping workspace scene load.')
@@ -155,6 +220,7 @@ class ArmControlNode(Node):
 		request.scene.world.collision_objects = collision_objects
 
 		future = self._planning_scene_client.call_async(request)
+
 		rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
 		if not future.done() or future.result() is None:
 			self.get_logger().warn('ApplyPlanningScene request did not complete.')
@@ -166,66 +232,37 @@ class ArmControlNode(Node):
 
 		self.get_logger().info(f'Applied {len(collision_objects)} workspace objects to the planning scene.')
 
-	def _collision_objects_from_workspace(self, workspace_config: Dict[str, Any]) -> List[CollisionObject]:
-		planning_frame = str(workspace_config.get('base_frame', self._planning_frame))
-		objects: List[CollisionObject] = []
+	def _target_pose_in_workspace_area(self, target_pose: PoseStamped) -> bool:
+		"""
+		@brief Check whether a transformed target pose lies inside the calibrated work area.
 
-		for workspace_object in workspace_config.get('objects', []):
-			# Keep the planning scene limited to primitives that MoveIt can consume directly from
-			# the saved YAML without any mesh generation step.
-			geometry = workspace_object.get('geometry', {})
-			geometry_type = geometry.get('type')
-			if geometry_type not in {'box', 'cylinder'}:
-				self.get_logger().warn(
-					f"Skipping {workspace_object.get('name', 'unnamed')} with unsupported geometry type {geometry_type}."
-				)
-				continue
+		@param target_pose Goal pose expressed in the planning frame.
+		@return True when no area is configured or the pose lies inside it.
+		"""
+		if self._workspace_area is None:
+			return True
 
-			primitive = SolidPrimitive()
-			dimensions = geometry.get('dimensions', {})
-			if geometry_type == 'box':
-				primitive.type = SolidPrimitive.BOX
-				primitive.dimensions = [
-					float(dimensions.get('x', 0.0)),
-					float(dimensions.get('y', 0.0)),
-					float(dimensions.get('z', 0.0)),
-				]
-			else:
-				primitive.type = SolidPrimitive.CYLINDER
-				primitive.dimensions = [
-					float(dimensions.get('height', 0.0)),
-					float(dimensions.get('radius', 0.0)),
-				]
+		geometry = self._workspace_area.get('geometry', {})
+		if not geometry:
+			self.get_logger().warn('Workspace area is configured but missing geometry; rejecting goal.')
+			return False
 
-			pose = dict_to_pose(geometry.get('pose', {}))
-			pose.orientation = self._normalized_orientation(pose.orientation)
-
-			collision_object = CollisionObject()
-			collision_object.id = str(workspace_object.get('name', f'object_{len(objects) + 1}'))
-			collision_object.header.frame_id = planning_frame
-			collision_object.primitives = [primitive]
-			collision_object.primitive_poses = [pose]
-			collision_object.operation = CollisionObject.ADD
-			objects.append(collision_object)
-
-		return objects
-
-	def _normalized_orientation(self, orientation: Any) -> Any:
-		normalized = normalize_quaternion(
-			Quaternion(
-				x=float(orientation.x),
-				y=float(orientation.y),
-				z=float(orientation.z),
-				w=float(orientation.w),
-			)
+		return point_in_workspace_area(
+			geometry,
+			{
+				'x': float(target_pose.pose.position.x),
+				'y': float(target_pose.pose.position.y),
+				'z': float(target_pose.pose.position.z),
+			},
 		)
-		orientation.x = normalized.x
-		orientation.y = normalized.y
-		orientation.z = normalized.z
-		orientation.w = normalized.w
-		return orientation
 
 	def _move_to_pose(self, target_pose: PoseStamped) -> tuple[bool, str]:
+		"""
+		@brief Send a MoveGroup action goal for the requested target pose.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@return Tuple of success flag and status message.
+		"""
 		action_name = str(self.get_parameter('move_group_action_name').value)
 		if not self._movegroup_client.wait_for_server(timeout_sec=5.0):
 			return False, f"MoveGroup action server '{action_name}' not available."
@@ -261,6 +298,12 @@ class ArmControlNode(Node):
 		return True, 'Arm motion completed successfully.'
 
 	def _build_motion_plan_request(self, target_pose: PoseStamped) -> MotionPlanRequest:
+		"""
+		@brief Construct a MoveIt motion planning request for a pose goal.
+
+		@param target_pose Goal pose expressed in the planning frame.
+		@return Configured MotionPlanRequest instance.
+		"""
 		request = MotionPlanRequest()
 		request.group_name = str(self.get_parameter('planning_group').value)
 		request.allowed_planning_time = float(self.get_parameter('allowed_planning_time').value)
@@ -280,6 +323,12 @@ class ArmControlNode(Node):
 		return request
 
 	def _pose_to_constraints(self, target_pose: PoseStamped) -> Constraints:
+		"""
+		@brief Convert a target pose into MoveIt position and orientation constraints.
+
+		@param target_pose Goal pose expressed in the planning frame.
+		@return Constraints object for the planner.
+		"""
 		ee_link = str(self.get_parameter('end_effector_link').value)
 		pos_tol = float(self.get_parameter('position_tolerance_m').value)
 		ori_tol = float(self.get_parameter('orientation_tolerance_rad').value)
@@ -327,6 +376,11 @@ class ArmControlNode(Node):
 
 
 def main(args: Optional[List[str]] = None) -> None:
+	"""
+	@brief Run the arm control node until shutdown.
+
+	@param args Optional ROS command-line arguments.
+	"""
 	rclpy.init(args=args)
 	node = ArmControlNode()
 	try:

@@ -21,6 +21,14 @@ except Exception:  # noqa: BLE001
 
 @dataclass
 class Quaternion:
+    """
+    @brief Simple quaternion container used for normalization helpers.
+
+    @var x X component.
+    @var y Y component.
+    @var z Z component.
+    @var w W component.
+    """
     x: float
     y: float
     z: float
@@ -28,6 +36,12 @@ class Quaternion:
 
 
 def normalize_quaternion(q: Quaternion) -> Quaternion:
+    """
+    @brief Normalize a quaternion and fall back to identity when invalid.
+
+    @param q Quaternion to normalize.
+    @return Unit quaternion suitable for MoveIt requests.
+    """
     # MoveIt constraints are sensitive to invalid quaternions, so every externally
     # supplied orientation is normalized before being used in planning requests.
     norm = math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w)
@@ -37,6 +51,14 @@ def normalize_quaternion(q: Quaternion) -> Quaternion:
 
 
 def resolve_config_path(package_name: str, configured_path: str, default_name: str) -> Path:
+    """
+    @brief Resolve a config file from an explicit path, source tree, or install share.
+
+    @param package_name ROS package name that owns the config.
+    @param configured_path User-supplied override path.
+    @param default_name Default config filename.
+    @return Absolute path to the resolved config file.
+    """
     # Prefer an explicit path, otherwise resolve the config from the source tree during
     # development or the installed package share directory after colcon install/build.
     if configured_path:
@@ -52,6 +74,14 @@ def resolve_config_path(package_name: str, configured_path: str, default_name: s
 
 
 def load_yaml_dict(path: Path, default_value: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    @brief Load a YAML mapping from disk or return a default copy when absent.
+
+    @param path YAML file path.
+    @param default_value Default mapping to return when the file does not exist.
+    @return Loaded YAML mapping.
+    @throws RuntimeError Raised when the YAML root is not a dictionary.
+    """
     # Config files are optional during first run, so callers can provide a default schema
     # and still work before the YAML exists on disk.
     if not path.exists():
@@ -66,12 +96,24 @@ def load_yaml_dict(path: Path, default_value: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def write_yaml_dict(path: Path, data: Dict[str, Any]) -> None:
+    """
+    @brief Persist a dictionary to YAML, creating parent directories as needed.
+
+    @param path Destination YAML file path.
+    @param data Mapping to serialize.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8') as config_file:
         yaml.safe_dump(data, config_file, sort_keys=False)
 
 
 def dict_to_pose(pose_dict: Dict[str, Any]) -> Pose:
+    """
+    @brief Convert a persisted pose dictionary into a ROS Pose message.
+
+    @param pose_dict YAML-compatible pose mapping.
+    @return Converted Pose message.
+    """
     # Workspace geometry is stored as plain YAML dictionaries; this helper converts that
     # persisted representation back into a ROS pose message for planning-scene loading.
     pose = Pose()
@@ -93,6 +135,16 @@ def transform_pose_to_frame(
     pose: PoseStamped,
     target_frame: str,
 ) -> PoseStamped:
+    """
+    @brief Transform a stamped pose into the requested frame.
+
+    @param node ROS node used for timestamps.
+    @param tf_buffer TF buffer used to query transforms.
+    @param pose Input pose to transform.
+    @param target_frame Frame required by the caller.
+    @return Pose expressed in the target frame.
+    @throws RuntimeError Raised when tf2_geometry_msgs is unavailable.
+    """
     # Action goals may arrive in camera, base, or any other connected frame. The arm-control
     # node always plans in one frame, so transforms are centralized here.
     if do_transform_pose is None:

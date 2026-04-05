@@ -3,4 +3,5 @@ updated_at: null
 base_frame: base_link
 tool_frame: tool0
 ground_plane_z: 0.0
+workspace_area: null
 objects: []

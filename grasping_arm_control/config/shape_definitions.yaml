@@ -1,5 +1,14 @@
 version: 1
 shapes:
+  workspace:
+    display_name: Rectangular plane
+    geometry_type: box
+    description: workspace plane defined by four corners in order around the area.
+    point_labels:
+      - corner_1
+      - corner_2
+      - corner_3
+      - corner_4
   rectangle:
     display_name: Rectangular prism
     geometry_type: box

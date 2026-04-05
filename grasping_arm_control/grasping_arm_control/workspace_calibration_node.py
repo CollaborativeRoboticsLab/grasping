@@ -1,6 +1,4 @@
 from copy import deepcopy
-from datetime import datetime, timezone
-import math
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -9,15 +7,26 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from grasping_arm_control.common import load_yaml_dict, resolve_config_path, write_yaml_dict
-
-
-def _iso_timestamp() -> str:
-	return datetime.now(timezone.utc).isoformat()
+from grasping_arm_control.common import load_yaml_dict, resolve_config_path
+from grasping_arm_control.workspace_utils import (
+	build_geometry,
+	build_workspace_area,
+	default_shape_definitions,
+	default_workspace_config,
+	iso_timestamp,
+	write_workspace_config,
+)
 
 
 class WorkspaceCalibrationNode(Node):
+	"""
+	@brief Interactive ROS node used to calibrate workspace collision objects.
+	"""
+
 	def __init__(self) -> None:
+		"""
+		@brief Initialize subscriptions, TF access, and the CLI worker thread.
+		"""
 		super().__init__('workspace_calibration_node')
 
 		self.declare_parameter('joint_state_topic', '/joint_states')
@@ -67,19 +76,34 @@ class WorkspaceCalibrationNode(Node):
 		self.get_logger().info(f'Shape definitions: {self._shape_definitions_path}')
 
 	def _joint_state_callback(self, msg: JointState) -> None:
+		"""
+		@brief Cache the most recent joint state message.
+
+		@param msg Joint state message from the robot.
+		"""
 		with self._joint_state_lock:
 			self._latest_joint_state = deepcopy(msg)
 
 	def _shutdown_if_requested(self) -> None:
+		"""
+		@brief Shut ROS down once the CLI thread has requested termination.
+		"""
 		if self._shutdown_requested.is_set():
 			rclpy.shutdown()
 
 	def _run_cli(self) -> None:
+		"""
+		@brief Load workspace data and run the interactive calibration loop.
+		"""
 		try:
 			# Shape requirements are defined separately from object instances so adding a new
 			# primitive later only requires extending the shape definition YAML.
-			shape_definitions = load_yaml_dict(self._shape_definitions_path, self._default_shape_definitions())
-			workspace_config = load_yaml_dict(self._workspace_config_path, self._default_workspace_config())
+			shape_definitions = load_yaml_dict(self._shape_definitions_path, default_shape_definitions())
+			workspace_config = load_yaml_dict(
+				self._workspace_config_path,
+				default_workspace_config(self._base_frame, self._tool_frame, self._ground_plane_z),
+			)
+			workspace_config.setdefault('workspace_area', None)
 			workspace_config.setdefault('objects', [])
 			self._interactive_loop(workspace_config, shape_definitions)
 		except Exception as exc:
@@ -88,6 +112,12 @@ class WorkspaceCalibrationNode(Node):
 			self._shutdown_requested.set()
 
 	def _interactive_loop(self, workspace_config: Dict[str, Any], shape_definitions: Dict[str, Any]) -> None:
+		"""
+		@brief Drive the top-level calibration menu.
+
+		@param workspace_config Mutable workspace configuration.
+		@param shape_definitions Available shape definitions.
+		"""
 		shapes = shape_definitions.get('shapes', {})
 		if not shapes:
 			raise RuntimeError('No shapes defined in shape_definitions.yaml')
@@ -100,6 +130,13 @@ class WorkspaceCalibrationNode(Node):
 
 		while rclpy.ok():
 			print('')
+			workspace_area = workspace_config.get('workspace_area')
+			if workspace_area:
+				area_size = workspace_area.get('geometry', {}).get('dimensions', {}).get('side_length', 0.0)
+				print(f'Workspace area configured: square side={float(area_size):.4f} m')
+			else:
+				print('Workspace area not calibrated yet.')
+
 			objects = workspace_config.get('objects', [])
 			if objects:
 				print('Existing objects:')
@@ -110,16 +147,26 @@ class WorkspaceCalibrationNode(Node):
 
 			add_index = len(objects) + 1
 			print(f'  {add_index}. Add new object')
+			print('  w. Calibrate workspace area')
 			print('  q. Quit')
 
 			selection = input('Select an object to update or choose add new: ').strip().lower()
 			if selection in {'q', 'quit', 'exit'}:
-				self._write_workspace_config(workspace_config)
+				workspace_config = self._write_workspace_config(workspace_config)
 				print('Calibration session ended.')
 				return
 
+			if selection in {'w', 'workspace'}:
+				workspace_area_entry = self._capture_workspace_area()
+				if workspace_area_entry is None:
+					continue
+				workspace_config['workspace_area'] = workspace_area_entry
+				workspace_config = self._write_workspace_config(workspace_config)
+				print('Workspace area saved.')
+				continue
+
 			if not selection.isdigit():
-				print('Enter a number or q to quit.')
+				print('Enter a number, w, or q to quit.')
 				continue
 
 			selected_index = int(selection)
@@ -128,8 +175,7 @@ class WorkspaceCalibrationNode(Node):
 				if object_entry is None:
 					continue
 				objects.append(object_entry)
-				workspace_config['updated_at'] = _iso_timestamp()
-				self._write_workspace_config(workspace_config)
+				workspace_config = self._write_workspace_config(workspace_config)
 				print(f'Saved object {object_entry["name"]}.')
 				continue
 
@@ -138,14 +184,19 @@ class WorkspaceCalibrationNode(Node):
 				if updated_entry is None:
 					continue
 				objects[selected_index - 1] = updated_entry
-				workspace_config['updated_at'] = _iso_timestamp()
-				self._write_workspace_config(workspace_config)
+				workspace_config = self._write_workspace_config(workspace_config)
 				print(f'Updated object {updated_entry["name"]}.')
 				continue
 
 			print('Selection out of range.')
 
 	def _create_new_object(self, shapes: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Prompt the operator for a new object definition and capture it.
+
+		@param shapes Available shape definitions.
+		@return New object entry, or None when creation is cancelled.
+		"""
 		print('')
 		name = input('Object name: ').strip()
 		if not name:
@@ -159,7 +210,7 @@ class WorkspaceCalibrationNode(Node):
 		object_entry = {
 			'name': name,
 			'shape': shape_key,
-			'created_at': _iso_timestamp(),
+			'created_at': iso_timestamp(),
 		}
 		return self._capture_object(object_entry, shapes[shape_key])
 
@@ -168,6 +219,13 @@ class WorkspaceCalibrationNode(Node):
 		existing_object: Dict[str, Any],
 		shapes: Dict[str, Any],
 	) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Update an existing workspace object.
+
+		@param existing_object Existing object entry from the workspace file.
+		@param shapes Available shape definitions.
+		@return Updated object entry, or None when the operation is cancelled.
+		"""
 		print('')
 		print(f'Updating {existing_object.get("name", "unnamed")}.')
 		print(f'Current shape: {existing_object.get("shape", "unknown")}')
@@ -187,6 +245,12 @@ class WorkspaceCalibrationNode(Node):
 		return self._capture_object(updated_object, shapes[shape_key])
 
 	def _prompt_for_shape(self, shapes: Dict[str, Any]) -> Optional[str]:
+		"""
+		@brief Prompt the operator to choose one of the configured shapes.
+
+		@param shapes Available shape definitions.
+		@return Selected shape key, or None when cancelled.
+		"""
 		print('')
 		print('Available shapes:')
 		shape_keys = list(shapes.keys())
@@ -218,6 +282,13 @@ class WorkspaceCalibrationNode(Node):
 		object_entry: Dict[str, Any],
 		shape_definition: Dict[str, Any],
 	) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Capture all required samples for one workspace object.
+
+		@param object_entry Object metadata being populated.
+		@param shape_definition Selected shape definition.
+		@return Completed object entry, or None when capture is cancelled.
+		"""
 		point_labels = list(shape_definition.get('point_labels', []))
 		if not point_labels:
 			print('Shape definition has no point labels.')
@@ -252,8 +323,13 @@ class WorkspaceCalibrationNode(Node):
 				samples.append(sample)
 				break
 
-		geometry = self._build_geometry(object_entry['shape'], samples, shape_definition)
-		object_entry['updated_at'] = _iso_timestamp()
+		geometry = build_geometry(
+			object_entry['shape'],
+			samples,
+			shape_definition,
+			self._ground_plane_z,
+		)
+		object_entry['updated_at'] = iso_timestamp()
 		object_entry['base_frame'] = self._base_frame
 		object_entry['tool_frame'] = self._tool_frame
 		object_entry['ground_plane_z'] = self._ground_plane_z
@@ -261,7 +337,57 @@ class WorkspaceCalibrationNode(Node):
 		object_entry['geometry'] = geometry
 		return object_entry
 
+	def _capture_workspace_area(self) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Capture the four corners of the robot work area.
+
+		@return Workspace area entry, or None when capture is cancelled.
+		"""
+		print('')
+		print('Capturing workspace area.')
+		print('Move the robot to the four workspace corners in order around the square.')
+		print('Press Enter to capture the current pose, or type cancel to stop.')
+
+		samples: List[Dict[str, Any]] = []
+		for point_label in ['corner_1', 'corner_2', 'corner_3', 'corner_4']:
+			while rclpy.ok():
+				response = input(f'Capture {point_label}: ').strip().lower()
+				if response in {'cancel', 'c', 'q'}:
+					print('Workspace area capture cancelled.')
+					return None
+
+				sample = self._capture_current_sample(point_label)
+				if sample is None:
+					retry = input('Capture failed. Press Enter to retry or type cancel: ').strip().lower()
+					if retry in {'cancel', 'c', 'q'}:
+						return None
+					continue
+
+				position = sample['pose']['position']
+				print(
+					f"Recorded {point_label}: x={position['x']:.4f}, y={position['y']:.4f}, z={position['z']:.4f}"
+				)
+				samples.append(sample)
+				break
+
+		return {
+			'type': 'workspace_area',
+			'created_at': iso_timestamp(),
+			'updated_at': iso_timestamp(),
+			'base_frame': self._base_frame,
+			'tool_frame': self._tool_frame,
+			'ground_plane_z': self._ground_plane_z,
+			'capture_samples': samples,
+			'geometry': build_workspace_area(samples, self._ground_plane_z),
+		}
+
 	def _capture_current_sample(self, point_label: str) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Capture the current TCP pose and joint state for a labeled point.
+
+		@param point_label Human-readable label for the sample.
+		@return Captured sample dictionary, or None when capture is unavailable.
+		"""
 		joint_state = self._get_latest_joint_state()
 		if joint_state is None:
 			print('No joint state received yet. Wait for /joint_states and try again.')
@@ -281,7 +407,7 @@ class WorkspaceCalibrationNode(Node):
 		rotation = transform.transform.rotation
 		return {
 			'label': point_label,
-			'captured_at': _iso_timestamp(),
+			'captured_at': iso_timestamp(),
 			'pose': {
 				'position': {
 					'x': float(translation.x),
@@ -299,6 +425,11 @@ class WorkspaceCalibrationNode(Node):
 		}
 
 	def _get_latest_joint_state(self) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Return the latest cached joint state as plain Python data.
+
+		@return Joint state mapping, or None when no message has arrived yet.
+		"""
 		with self._joint_state_lock:
 			if self._latest_joint_state is None:
 				return None
@@ -310,143 +441,28 @@ class WorkspaceCalibrationNode(Node):
 				'effort': [float(value) for value in self._latest_joint_state.effort],
 			}
 
-	def _build_geometry(
-		self,
-		shape_key: str,
-		samples: List[Dict[str, Any]],
-		shape_definition: Dict[str, Any],
-	) -> Dict[str, Any]:
-		# Geometry is derived into basic MoveIt-friendly primitives now so the runtime planning
-		# scene loader does not need to reinterpret manual calibration points every startup.
-		points = [sample['pose']['position'] for sample in samples]
-		geometry_type = shape_definition.get('geometry_type', 'generic')
+	def _write_workspace_config(self, workspace_config: Dict[str, Any]) -> Dict[str, Any]:
+		"""
+		@brief Persist the workspace configuration with current node metadata.
 
-		if shape_key == 'rectangle' and len(points) == 4:
-			return self._build_rectangle_geometry(points, geometry_type)
-		if shape_key == 'cylinder' and len(points) >= 2:
-			return self._build_cylinder_geometry(points, geometry_type)
-
-		average_z = sum(point['z'] for point in points) / len(points)
-		return {
-			'type': geometry_type,
-			'height': max(0.0, average_z - self._ground_plane_z),
-			'top_face_points': points,
-		}
-
-	def _build_rectangle_geometry(self, points: List[Dict[str, float]], geometry_type: str) -> Dict[str, Any]:
-		edge_a = self._distance(points[0], points[1])
-		edge_b = self._distance(points[1], points[2])
-		edge_c = self._distance(points[2], points[3])
-		edge_d = self._distance(points[3], points[0])
-		size_x = (edge_a + edge_c) / 2.0
-		size_y = (edge_b + edge_d) / 2.0
-		top_z = sum(point['z'] for point in points) / len(points)
-		center_x = sum(point['x'] for point in points) / len(points)
-		center_y = sum(point['y'] for point in points) / len(points)
-		height = max(0.0, top_z - self._ground_plane_z)
-
-		return {
-			'type': geometry_type,
-			'dimensions': {
-				'x': size_x,
-				'y': size_y,
-				'z': height,
-			},
-			'pose': {
-				'position': {
-					'x': center_x,
-					'y': center_y,
-					'z': self._ground_plane_z + (height / 2.0),
-				},
-				'orientation': {
-					'x': 0.0,
-					'y': 0.0,
-					'z': 0.0,
-					'w': 1.0,
-				},
-			},
-			'top_face_points': points,
-		}
-
-	def _build_cylinder_geometry(self, points: List[Dict[str, float]], geometry_type: str) -> Dict[str, Any]:
-		center_point = points[0]
-		rim_points = points[1:]
-		top_z = sum(point['z'] for point in points) / len(points)
-		height = max(0.0, top_z - self._ground_plane_z)
-		radius = sum(self._distance_xy(center_point, point) for point in rim_points) / len(rim_points)
-
-		return {
-			'type': geometry_type,
-			'dimensions': {
-				'height': height,
-				'radius': radius,
-			},
-			'pose': {
-				'position': {
-					'x': center_point['x'],
-					'y': center_point['y'],
-					'z': self._ground_plane_z + (height / 2.0),
-				},
-				'orientation': {
-					'x': 0.0,
-					'y': 0.0,
-					'z': 0.0,
-					'w': 1.0,
-				},
-			},
-			'top_face_points': points,
-		}
-
-	def _distance(self, start: Dict[str, float], end: Dict[str, float]) -> float:
-		return math.sqrt(
-			((end['x'] - start['x']) ** 2)
-			+ ((end['y'] - start['y']) ** 2)
-			+ ((end['z'] - start['z']) ** 2)
+		@param workspace_config Workspace configuration to write.
+		@return Normalized workspace configuration that was persisted.
+		"""
+		return write_workspace_config(
+			self._workspace_config_path,
+			workspace_config,
+			self._base_frame,
+			self._tool_frame,
+			self._ground_plane_z,
 		)
-
-	def _distance_xy(self, start: Dict[str, float], end: Dict[str, float]) -> float:
-		return math.sqrt(((end['x'] - start['x']) ** 2) + ((end['y'] - start['y']) ** 2))
-
-	def _write_workspace_config(self, workspace_config: Dict[str, Any]) -> None:
-		workspace_config.setdefault('version', 1)
-		workspace_config['updated_at'] = _iso_timestamp()
-		workspace_config['base_frame'] = self._base_frame
-		workspace_config['tool_frame'] = self._tool_frame
-		workspace_config['ground_plane_z'] = self._ground_plane_z
-
-		write_yaml_dict(self._workspace_config_path, workspace_config)
-
-	def _default_workspace_config(self) -> Dict[str, Any]:
-		return {
-			'version': 1,
-			'updated_at': _iso_timestamp(),
-			'base_frame': self._base_frame,
-			'tool_frame': self._tool_frame,
-			'ground_plane_z': self._ground_plane_z,
-			'objects': [],
-		}
-
-	def _default_shape_definitions(self) -> Dict[str, Any]:
-		return {
-			'version': 1,
-			'shapes': {
-				'rectangle': {
-					'display_name': 'Rectangular prism',
-					'geometry_type': 'box',
-					'description': 'Capture the four top-face corners in order around the object.',
-					'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
-				},
-				'cylinder': {
-					'display_name': 'Cylinder',
-					'geometry_type': 'cylinder',
-					'description': 'Capture the top-face center, then four rim points around the cylinder.',
-					'point_labels': ['center', 'rim_1', 'rim_2', 'rim_3', 'rim_4'],
-				},
-			},
-		}
 
 
 def main(args: Optional[List[str]] = None) -> None:
+	"""
+	@brief Run the workspace calibration node until shutdown.
+
+	@param args Optional ROS command-line arguments.
+	"""
 	rclpy.init(args=args)
 	node = WorkspaceCalibrationNode()
 	try:
