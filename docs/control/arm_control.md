@@ -30,7 +30,9 @@ Responsibilities:
 - Accept `MoveToPose` goals.
 - Transform incoming poses into the configured planning frame.
 - Load collision objects from `grasping_arm_control/config/workspace.yaml` at startup.
+- Load an optional calibrated `workspace_area` from the same YAML file.
 - Push those objects into MoveIt through `ApplyPlanningScene`.
+- Reject target poses that fall outside the calibrated workspace area before planning.
 - Convert a target TCP pose into MoveIt position and orientation constraints.
 - Execute motion through the configured `moveit_msgs/action/MoveGroup` server.
 
@@ -43,6 +45,13 @@ Important parameters:
 - `end_effector_link`: constrained link, default `tool0`
 - `workspace_config_path`: optional override for the workspace YAML path
 - `apply_planning_scene_service`: default `/apply_planning_scene`
+
+Runtime behavior notes:
+
+- If `workspace_area` is not configured, the node accepts target poses anywhere in the planning frame.
+- If `workspace_area` is configured, the node checks the transformed target pose against the saved square boundary before sending a MoveIt goal.
+- If a pose is outside that boundary, the action aborts with the message `Target pose lies outside the calibrated workspace area.`
+- The current filter is planar: it checks the XY position against the saved corner polygon and does not enforce a Z band.
 
 ## Grasping Node
 
@@ -77,4 +86,4 @@ The launch file passes planning parameters only to `arm_control_node` and passes
 3. Launch `grip.launch.py`.
 4. Call `/grasping_node/run_grasp`.
 
-The grasping node will request a grasp pose, and the arm-control node will execute the motion while respecting the calibrated planning scene.
+The grasping node will request a grasp pose, and the arm-control node will execute the motion while respecting both the calibrated planning scene and the optional calibrated workspace area.
