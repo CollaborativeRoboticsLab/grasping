@@ -32,6 +32,7 @@ Responsibilities:
 - Load collision objects from `grasping_arm_control/config/workspace.yaml` at startup.
 - Load an optional calibrated `workspace_area` from the same YAML file.
 - Push those objects into MoveIt through `ApplyPlanningScene`.
+- Publish the calibrated workspace area as a semi-transparent green RViz marker plane.
 - Reject target poses that fall outside the calibrated workspace area before planning.
 - Convert a target TCP pose into MoveIt position and orientation constraints.
 - Execute motion through the configured `moveit_msgs/action/MoveGroup` server.
@@ -45,11 +46,13 @@ Important parameters:
 - `end_effector_link`: constrained link, default `tool0`
 - `workspace_config_path`: optional override for the workspace YAML path
 - `apply_planning_scene_service`: default `/apply_planning_scene`
+- `workspace_area_marker_topic`: RViz marker topic, default `/workspace_area_marker`
 
 Runtime behavior notes:
 
 - If `workspace_area` is not configured, the node accepts target poses anywhere in the planning frame.
 - If `workspace_area` is configured, the node checks the transformed target pose against the saved square boundary before sending a MoveIt goal.
+- If `workspace_area` is configured, the node also publishes a semi-transparent green plane marker so the work zone is visible in RViz.
 - If a pose is outside that boundary, the action aborts with the message `Target pose lies outside the calibrated workspace area.`
 - The current filter is planar: it checks the XY position against the saved corner polygon and does not enforce a Z band.
 
@@ -60,12 +63,25 @@ Node:
 - Package: `grasping`
 - Executable: `grasping_node`
 
+When started by `grip.launch.py`, the node name is explicitly set to `grasping_node`, so its Trigger service is exposed as `/grasping_node/run_grasp`.
+
 Responsibilities:
 
 - Call `anygrasp_msgs/srv/GetGrasps`
 - Forward the returned `PoseStamped` to `MoveToPose`
 - Close the gripper after a successful motion
 - Optionally send a configured post-grasp pose through the same action
+
+Important parameters:
+
+- `server_mode`: expose the Trigger service when true, or run once and exit when false
+- `anygrasp_service`: AnyGrasp service name, default `detection`
+- `arm_action_name`: `MoveToPose` action name, default `move_arm_to_pose`
+- `do_post_grasp_move`: enable post-grasp motion, default `true`
+- `post_grasp_frame`: frame for the post-grasp pose
+- `post_grasp_pose`: `[x,y,z,qx,qy,qz,qw]`
+- `open_action_name`: default `/open_gripper`
+- `close_action_name`: default `/close_gripper`
 
 This keeps the grasping node independent from MoveIt-specific details.
 

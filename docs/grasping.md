@@ -4,7 +4,7 @@ This repo’s grasping stack centers around the `grasping` ROS 2 Python package,
 
 - A single “pipeline controller” node (`grasping/grasping_node`) that coordinates:
 	1. AnyGrasp grasp pose estimation
-	2. MoveIt motion planning + execution to the grasp pose
+	2. Forwarding the selected pose to the arm-control action server
 	3. Gripper close
 	4. Optional post-grasp motion
 - A bringup launch file (`grasping/launch/grip.launch.py`) that wires up the TF frames needed to transform AnyGrasp outputs into the robot planning frame.
@@ -23,7 +23,7 @@ The node supports two operating modes:
 
 When `server_mode: true`, the node exposes a Trigger service:
 
-- Service: `/grasping_node/run_grasp`
+- Service: `/grasping_node/run_grasp` when started through `grip.launch.py`
 - Type: `std_srvs/srv/Trigger`
 
 Example:
@@ -38,6 +38,8 @@ In one-shot mode (`server_mode: false`), you run the node and it will execute im
 ros2 run grasping grasping_node --ros-args -p server_mode:=false
 ```
 
+If you start the node directly without the launch file and keep the built-in node name, the Trigger service will be rooted under `/grasping_node` instead.
+
 ## What the pipeline does
 
 ### 1) Request a grasp pose from AnyGrasp
@@ -51,22 +53,23 @@ In this repo, AnyGrasp nodes expose services:
 
 Important detail: the service response contains a list of `geometry_msgs/PoseStamped`. Each pose keeps the source point cloud header, so the camera frame comes directly from AnyGrasp.
 
-### 2) Transform to the planning frame
+### 2) Send the grasp pose to arm control
 
-The pipeline transforms the returned pose frame into `planning_frame` using TF.
+The grasping node does not transform poses or call MoveIt directly anymore.
 
-This requires a connected TF tree that relates the robot base/planning frame to the camera frame. The `launch/grip.launch.py` file publishes typical wrist-mounted static transforms (end-effector → camera and end-effector → gripper).
+Instead it sends the returned `PoseStamped` to:
 
-### 3) Move to the grasp pose via MoveIt
+- Action type: `grasping_msgs/action/MoveToPose`
+- Action name: configured by `arm_action_name`
 
-The node uses a MoveIt action client:
+The arm-control node then handles:
 
-- Action type: `moveit_msgs/action/MoveGroup`
-- Action name: configured by `move_group_action_name`
+- TF transformation into its planning frame
+- workspace collision objects
+- optional workspace-area filtering
+- MoveIt planning and execution
 
-The goal is expressed as pose constraints for the configured `end_effector_link`.
-
-### 4) Close the gripper
+### 3) Close the gripper
 
 The node uses the common gripper actions from `gripper_msgs`:
 
@@ -82,7 +85,7 @@ Two helper functions exist:
 
 The numeric meaning of `torque` is driver-specific.
 
-### 5) Post-grasp move
+### 4) Post-grasp move
 
 If `do_post_grasp_move` is true, the node moves to `post_grasp_pose` (a pose in `post_grasp_frame`).
 
@@ -101,6 +104,8 @@ Why static transforms?
 AnyGrasp returns `geometry_msgs/PoseStamped` with the original pointcloud header. The pipeline uses that frame directly and transforms:
 
 `poses[0].header.frame_id` → `planning_frame`
+
+That transform is performed inside `grasping_arm_control/arm_control_node`, not inside `grasping_node`.
 
 If your camera is not rigidly mounted to the end-effector, do not use static transforms.
 
@@ -131,12 +136,8 @@ Pipeline configuration:
 - `server_mode` (default: `true`)
 - `anygrasp_service` (default: `detection`)
 	- Service name to call (`detection` or `tracking` in this repo).
-- `move_group_action_name` (default: `move_action`)
-	- Name of the MoveIt `moveit_msgs/action/MoveGroup` action server.
-	- Common values are `move_action` or `move_group` depending on your MoveIt setup.
-- `planning_group` (default: `manipulator`)
-- `planning_frame` (default: `base_link`)
-- `end_effector_link` (default: `tool0`)
+- `arm_action_name` (default: `move_arm_to_pose`)
+	- Name of the `grasping_msgs/action/MoveToPose` action server exposed by `arm_control_node`.
 
 Gripper actions:
 
@@ -193,21 +194,12 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 
 ### TF / planning frames
 
-- `planning_frame` (string, default `base_link`)
-- `end_effector_link` (string, default `tool0`)
-- `planning_group` (string, default `manipulator`)
+- The grasping node no longer owns planning-frame or MoveIt parameters.
+- Those are configured on `grasping_arm_control/arm_control_node` or passed through `grip.launch.py` to that node.
 
-### MoveIt execution
+### Arm-control action
 
-- `move_group_action_name` (string, default `move_action`)
-- `allowed_planning_time` (float)
-- `num_planning_attempts` (int)
-- `max_velocity_scaling` (float)
-- `max_acceleration_scaling` (float)
-- `position_tolerance_m` (float)
-- `orientation_tolerance_rad` (float)
-- `planning_pipeline_id` (string, optional)
-- `planner_id` (string, optional)
+- `arm_action_name` (string, default `move_arm_to_pose`)
 
 ### Gripper action names
 
@@ -225,13 +217,14 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 For a full run, you must have:
 
 1. AnyGrasp node running (providing `detection` or `tracking` service)
-2. A TF tree connecting `planning_frame` and the pointcloud frame reported in the returned grasp pose header
-3. MoveIt MoveGroup action server running (`move_group_action_name`)
-4. A gripper action server providing `/close_gripper` (Dynamixel or Feetech)
+2. `grasping_arm_control/arm_control_node` running and exposing the `MoveToPose` action configured by `arm_action_name`
+3. A TF tree connecting the arm-control planning frame and the pointcloud frame reported in the returned grasp pose header
+4. MoveIt and the arm-control node's downstream `MoveGroup` interface running
+5. A gripper action server providing `/close_gripper` (Dynamixel or Feetech)
 
 ## Troubleshooting
 
 - **AnyGrasp call fails / returns no pose**: check the AnyGrasp node logs and confirm the service name (`ros2 service list`).
-- **TF lookup fails**: verify that `planning_frame` and the grasp pose header frame exist and are connected (`tf2_echo`).
-- **MoveIt action not available**: list actions (`ros2 action list`) and set `move_group_action_name` accordingly.
+- **Arm-control action not available**: list actions (`ros2 action list`) and confirm the `MoveToPose` action name configured by `arm_action_name`.
+- **TF lookup fails**: verify that the arm-control planning frame and the grasp pose header frame exist and are connected (`tf2_echo`).
 - **Gripper action not available**: start one of the gripper drivers and verify `/close_gripper` exists.

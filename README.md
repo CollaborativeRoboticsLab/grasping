@@ -44,9 +44,18 @@ In this grasping framework, we evaluate different gripper types. Due to this we 
 
 In this grasping framework we utilize anygrasp for grasp pose detection. We have configured the devcontainer to install the anygraph along with its dependencies. Instructions for license requesting, license loading, node customization and starting can be found in [docs/anygrasp.md](./docs/anygrasp.md).
 
-### Grasping Node
+### Grasping Pipeline
 
-Grasping node is reponsible for guiding the robot arm to selected grasp pose (from Anygrasp Node) and Controlling the gripper to grasp. More information about the implementation and node starting can be found in [docs/grasping.md](./docs/grasping.md)
+The grasping pipeline handles two roles:
+
+- `grasping_node` orchestrates the main pipeline: It requests a grasp pose from AnyGrasp, calls the arm-control action, closes the gripper, and optionally runs a post-grasp move.
+- `arm_control_node` owns motion execution: transforms poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
+
+Related documentation:
+
+- [Control Pipeline](./docs/grasping.md): pipeline modes, Trigger service usage, launch flow, and `grasping_node` parameters
+- [Arm Control](./docs/control/arm_control.md): `MoveToPose` action interface, planning-scene loading, workspace-area filtering, and RViz marker visualization
+- [Workspace Creation](./docs/control/workspace_creation.md): interactive calibration flow for collision objects and the square workspace area
 
 ## Building container
 

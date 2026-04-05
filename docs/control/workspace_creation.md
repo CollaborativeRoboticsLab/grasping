@@ -94,6 +94,8 @@ Use the `w` option in the calibration menu to record the robot's working area.
 
 This area is not added to the MoveIt planning scene as a collision object. It is used only as an acceptance filter for incoming grasp or motion poses.
 
+When `arm_control_node` loads a calibrated area, it also publishes that area as a semi-transparent green plane marker on `/workspace_area_marker` by default so the zone is visible in RViz.
+
 ## Rectangle Convention
 
 For a rectangle:

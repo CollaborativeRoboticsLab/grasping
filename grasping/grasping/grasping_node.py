@@ -27,7 +27,7 @@ class GraspingNode(Node):
     """
 
     def __init__(self) -> None:
-        super().__init__("ur_grasping_node")
+        super().__init__("grasping_node")
 
         self.declare_parameter("server_mode", True)
         self.declare_parameter("anygrasp_service", "detection")

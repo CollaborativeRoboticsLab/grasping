@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 
 from grasping_arm_control.common import (
 	Quaternion,
@@ -31,6 +32,7 @@ from moveit_msgs.msg import (
 from moveit_msgs.srv import ApplyPlanningScene
 from shape_msgs.msg import SolidPrimitive
 import tf2_ros
+from visualization_msgs.msg import Marker
 
 
 class ArmControlNode(Node):
@@ -59,6 +61,7 @@ class ArmControlNode(Node):
 		self.declare_parameter('planner_id', '')
 		self.declare_parameter('workspace_config_path', '')
 		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
+		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._workspace_config_path = resolve_config_path(
@@ -67,11 +70,22 @@ class ArmControlNode(Node):
 			'workspace.yaml',
 		)
 		self._workspace_area: Optional[Dict[str, Any]] = None
+		self._workspace_area_frame = self._planning_frame
 
 		# TF is only handled in this node so every incoming action goal is transformed into
 		# the planning frame before MoveIt constraints are constructed.
 		self._tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=10.0))
 		self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+		marker_qos = QoSProfile(
+			history=HistoryPolicy.KEEP_LAST,
+			depth=1,
+			durability=DurabilityPolicy.TRANSIENT_LOCAL,
+		)
+		self._workspace_area_marker_publisher = self.create_publisher(
+			Marker,
+			str(self.get_parameter('workspace_area_marker_topic').value),
+			marker_qos,
+		)
 
 		self._movegroup_client = ActionClient(
 			self,
@@ -184,6 +198,7 @@ class ArmControlNode(Node):
 		# The workspace file is authored by the calibration node and already contains derived
 		# primitive geometry, so startup only needs to translate it into CollisionObjects.
 		workspace_config = load_yaml_dict(self._workspace_config_path, {'workspace_area': None, 'objects': []})
+		self._workspace_area_frame = str(workspace_config.get('base_frame', self._planning_frame))
 		workspace_area = workspace_config.get('workspace_area')
 		if isinstance(workspace_area, dict):
 			self._workspace_area = workspace_area
@@ -209,6 +224,7 @@ class ArmControlNode(Node):
 			self.get_logger().info('Workspace area filtering is enabled.')
 		else:
 			self.get_logger().info('Workspace area filtering is disabled.')
+		self._publish_workspace_area_marker()
 
 		if not self._planning_scene_client.wait_for_service(timeout_sec=5.0):
 			self.get_logger().warn('ApplyPlanningScene service not available; skipping workspace scene load.')
@@ -247,14 +263,65 @@ class ArmControlNode(Node):
 			self.get_logger().warn('Workspace area is configured but missing geometry; rejecting goal.')
 			return False
 
+		pose_for_check = target_pose
+		if target_pose.header.frame_id != self._workspace_area_frame:
+			pose_for_check = transform_pose_to_frame(
+				self,
+				self._tf_buffer,
+				target_pose,
+				self._workspace_area_frame,
+			)
+
 		return point_in_workspace_area(
 			geometry,
 			{
-				'x': float(target_pose.pose.position.x),
-				'y': float(target_pose.pose.position.y),
-				'z': float(target_pose.pose.position.z),
+				'x': float(pose_for_check.pose.position.x),
+				'y': float(pose_for_check.pose.position.y),
+				'z': float(pose_for_check.pose.position.z),
 			},
 		)
+
+	def _publish_workspace_area_marker(self) -> None:
+		"""
+		@brief Publish the calibrated workspace area as a semi-transparent RViz plane.
+		"""
+		marker = Marker()
+		marker.header.stamp = self.get_clock().now().to_msg()
+		marker.header.frame_id = self._workspace_area_frame
+		marker.ns = 'workspace_area'
+		marker.id = 0
+		marker.action = Marker.DELETE
+		if self._workspace_area is None:
+			self._workspace_area_marker_publisher.publish(marker)
+			return
+
+		geometry = self._workspace_area.get('geometry', {})
+		corner_points = geometry.get('corner_points', [])
+		if len(corner_points) != 4:
+			self.get_logger().warn('Workspace area marker was not published because four corners are required.')
+			self._workspace_area_marker_publisher.publish(marker)
+			return
+
+		marker.action = Marker.ADD
+		marker.type = Marker.TRIANGLE_LIST
+		marker.pose.orientation.w = 1.0
+		marker.scale.x = 1.0
+		marker.scale.y = 1.0
+		marker.scale.z = 1.0
+		marker.color.r = 0.1
+		marker.color.g = 0.8
+		marker.color.b = 0.2
+		marker.color.a = 0.25
+
+		for index in [0, 1, 2, 0, 2, 3]:
+			point = corner_points[index]
+			marker_point = Point()
+			marker_point.x = float(point['x'])
+			marker_point.y = float(point['y'])
+			marker_point.z = float(point['z']) + 0.002
+			marker.points.append(marker_point)
+
+		self._workspace_area_marker_publisher.publish(marker)
 
 	def _move_to_pose(self, target_pose: PoseStamped) -> tuple[bool, str]:
 		"""
