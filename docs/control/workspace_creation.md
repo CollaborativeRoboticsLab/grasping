@@ -1,40 +1,61 @@
 # Workspace Creation
 
-The workspace calibration flow stores robot-referenced obstacles in `grasping_arm_control/config/workspace.yaml`.
+This document covers the interactive calibration flow that writes `grasping_arm_control/config/workspace.yaml`.
+
+For how the runtime system consumes that file, see [arm_control.md](./arm_control.md).
 
 ## Purpose
 
-The calibration node records manually sampled points around the robot and converts them into simple planning primitives. Those primitives are later loaded by `arm_control_node` into the MoveIt planning scene.
+The calibration workflow stores robot-referenced workspace data for two different runtime uses.
+
+- `objects`: collision geometry that `arm_control_node` loads into the MoveIt planning scene
+- `workspace_area`: an optional square work zone used to reject out-of-bounds target poses before planning
+
+The calibration node records manual samples around the robot, preserves the raw capture data, and derives simple planning primitives from those samples.
+
+## Inputs and Dependencies
+
+The node depends on:
+
+- Manipulator's `joint_state_topic`, default `/joint_states`
+- TF between `base_frame` and `tool_frame`
+- `shape_definitions.yaml` for the supported object-capture layouts
+
+During capture, each saved sample includes:
+
+- a point label
+- capture timestamp
+- tool pose in the base frame
+- a snapshot of the latest joint state
+
+## Supported Calibration Targets
 
 The current flow supports:
 
-- a square workspace area derived from four captured work-area corners
+- a square workspace area derived from four captured corner points
 - rectangular prisms derived from four top-face corners
 - cylinders derived from one center point and four rim points
 
-Shape requirements are defined in `grasping_arm_control/config/shape_definitions.yaml` so new primitive types can be added without rewriting the interaction loop.
+Shape requirements are defined in `grasping_arm_control/config/shape_definitions.yaml`, so new capture patterns can be added without rewriting the interactive loop.
 
-## Calibration Node
+## Interactive Flow
 
-Node:
+When the node starts, it loads the current workspace file and then enters a CLI session.
 
-- Package: `grasping_arm_control`
-- Executable: `workspace_calibration`
+The top-level menu lets the operator:
 
-What it does:
+- review the currently saved workspace area
+- review existing objects
+- add a new object
+- update an existing object
+- calibrate the workspace area with the `w` option
+- quit and persist the updated YAML
 
-- subscribes to `/joint_states`
-- looks up the current tool pose from TF using `base_frame` and `tool_frame`
-- lets you calibrate a square workspace area used for runtime goal filtering
-- lists existing objects from `workspace.yaml`
-- lets you update an existing object or add a new one
-- records both sampled Cartesian poses and the matching joint-state snapshot
-- derives a primitive geometry block for each object
-- writes the updated YAML back into the package config
+The node writes the normalized workspace configuration back to disk after each saved change and again when the session exits.
 
-## Stored YAML Structure
+## Workspace YAML Structure
 
-Top-level fields:
+Top-level fields written by the calibration flow:
 
 - `version`
 - `updated_at`
@@ -43,6 +64,8 @@ Top-level fields:
 - `ground_plane_z`
 - `workspace_area`
 - `objects`
+
+### `workspace_area`
 
 The `workspace_area` field is either `null` or a dictionary containing:
 
@@ -55,57 +78,80 @@ The `workspace_area` field is either `null` or a dictionary containing:
 - `capture_samples`
 - `geometry`
 
-Each object contains:
+Its derived `geometry` block contains:
+
+- `type`: `square`
+- `dimensions.side_length`: average side length from the four captured edges
+- `dimensions.height_from_ground`: average captured Z minus `ground_plane_z`
+- `pose.position`: average center of the four corners
+- `corner_points`: the four saved corner points in capture order
+
+### `objects`
+
+Each object entry contains:
 
 - `name`
 - `shape`
 - `created_at`
 - `updated_at`
+- `base_frame`
+- `tool_frame`
+- `ground_plane_z`
 - `capture_samples`
 - `geometry`
 
-Each sample contains:
+The derived `geometry` block is what runtime planning uses.
 
-- point label
-- capture timestamp
-- tool pose in the base frame
-- joint state arrays at the moment of capture
+Supported derived runtime geometry types are:
 
-The `geometry` block is what runtime planning uses. It contains a primitive type such as `box` or `cylinder`, its dimensions, and a pose.
+- `box`
+- `cylinder`
 
-For `workspace_area`, the `geometry` block contains:
+## Workspace-Area Capture Convention
 
-- `type`: `square`
-- `dimensions.side_length`: average side length from the four captured edges
-- `dimensions.height_from_ground`: average sampled Z minus `ground_plane_z`
-- `pose.position`: average center of the four corners
-- `corner_points`: the four saved corners in capture order
-
-The capture order matters. The area filter assumes the four corners are recorded in order around the workspace boundary.
-
-## Workspace Area Convention
-
-Use the `w` option in the calibration menu to record the robot's working area.
+Use the `w` option in the calibration menu to record the robot working area.
 
 1. Move the tool to the first workspace corner and press Enter.
-2. Continue around the square boundary in order for corners 2 through 4.
-3. The node stores the four raw samples and derives a square-like area geometry.
-4. `arm_control_node` later uses those saved corners to reject target poses outside the area.
+2. Continue around the boundary in order for corners 2 through 4.
+3. The node stores the raw samples and derives a square-like area geometry.
+4. `arm_control_node` later uses those saved corners for its planar inside/outside test.
 
-This area is not added to the MoveIt planning scene as a collision object. It is used only as an acceptance filter for incoming grasp or motion poses.
+The capture order matters. The runtime area filter assumes the four corners are recorded in order around the boundary.
 
-When `arm_control_node` loads a calibrated area, it also publishes that area as a semi-transparent green plane marker on `/workspace_area_marker` by default so the zone is visible in RViz.
+You may start from any corner, but after that you must keep moving around the perimeter in a single direction.
+
+- Clockwise is valid.
+- Anticlockwise is also valid.
+- Zigzagging across the square is invalid.
+
+Example valid sequence:
+
+- corner_1 = near-left
+- corner_2 = far-left
+- corner_3 = far-right
+- corner_4 = near-right
+
+Example invalid sequence:
+
+- corner_1 = near-left
+- corner_2 = far-right
+- corner_3 = far-left
+- corner_4 = near-right
+
+There is no special requirement such as "top-left first". The important rule is that consecutive captured points must be neighboring corners on the workspace boundary.
+
+The workspace area is not added to the MoveIt planning scene as a collision object.
 
 ## Rectangle Convention
 
 For a rectangle:
 
 1. Move the tool to each top-face corner in order around the object.
-2. Press Enter to capture each corner.
-3. The node estimates the center and planar dimensions from those four points.
-4. Height is computed as `top_z - ground_plane_z`.
+2. Capture all four points.
+3. The node estimates the center and the two planar dimensions from the sampled edges.
+4. The object height is computed as `top_z - ground_plane_z`.
 
-The saved primitive becomes a box aligned with the planning frame.
+The saved geometry becomes a box aligned with the base frame.
 
 ## Cylinder Convention
 
@@ -114,19 +160,11 @@ For a cylinder:
 1. Capture the top-face center.
 2. Capture four rim points around the top face.
 3. The node averages the XY distance from the center to the rim points to estimate radius.
-4. Height is computed as `top_z - ground_plane_z`.
+4. The object height is computed as `top_z - ground_plane_z`.
 
-The saved primitive becomes a cylinder aligned with the planning frame.
+The saved geometry becomes a cylinder aligned with the base frame.
 
-## Usage
-
-Example:
-
-```bash
-ros2 run grasping_arm_control workspace_calibration
-```
-
-Useful parameters:
+## Parameters
 
 - `joint_state_topic`
 - `base_frame`
@@ -135,12 +173,20 @@ Useful parameters:
 - `workspace_config_path`
 - `shape_definitions_path`
 
-If you need a custom config location, pass it as a node parameter and keep the runtime `arm_control_node` pointed at the same file.
+If you override `workspace_config_path`, point `arm_control_node` at the same file so both nodes use the same calibrated scene.
+
+## Usage
+
+Run the calibration node with:
+
+```bash
+ros2 run grasping_arm_control workspace_calibration
+```
 
 ## Typical Session
 
 1. Run `workspace_calibration`.
-2. Press `w` to calibrate the workspace area.
-3. Capture the four workspace corners in order around the boundary.
-4. Add or update object obstacles as needed.
-5. Quit the session to persist both `workspace_area` and `objects` back to `workspace.yaml`.
+2. Press `w` to calibrate the workspace area if needed.
+3. Capture the four workspace corners in order.
+4. Add or update collision objects as needed.
+5. Quit to persist the updated `workspace_area` and `objects`.

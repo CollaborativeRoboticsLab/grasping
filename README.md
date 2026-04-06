@@ -22,13 +22,42 @@ Read here for [known issues and fixes](./docs/issues.md)
 
 ### Camera Driver
 
-As show in the system architecture diagram, we utilize RGB and Depth images to identify objects and their grasping poses. In this graping framework, instructions related to setup, configuration and customization are in the linked file.
+In this graping framework, instructions related to Camera setup, configuration and customization are in the linked file. We currebtly support following devices,
 
 - [Realsense Camera](./docs/camera/realsense.md)
 
+### RGBD to Pointcloud
+
+As show in the system architecture diagram, as a preprocessing step, we combine the RGB and Depth images to create a colored pointcloud. This is done using the `anygrasp_ros/rgbd_to_pointcloud_node` node which subscribes to RGB and Depth image topics, synchronizes them, and publishes the resulting colored pointcloud for use in grasp pose detection.
+
+- [RGBD to Pointcloud Node](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/rgbd_to_pointcloud.md)
+
+### Anygrasp Node
+
+In this grasping framework we utilize anygrasp for grasp pose detection. The anygrasp has been interfaced with ROS2 via `anygrasp_ros/anygrasp_detection_node` and `anygrasp_ros/anygrasp_tracking_node`. These two node expects a colored pointcloud as input (which we provide via the `rgbd_to_pointcloud_node`). We have configured the devcontainer to install the anygraph along with its dependencies. Read following related documentation.
+
+- [License requesting and loading, node customization and starting](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/README.md)
+- [Testing the anygrasp installation](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/testing.md)
+- [Anygrasp Detection Node](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/detection.md)
+- [Anygrasp Tracking Node](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/tracking.md)
+
+### Grasping Pipeline
+
+The grasping pipeline is the main component that orchestrates the grasping process: it requests a grasp pose from AnyGrasp, calls the arm-control action, closes the gripper, and optionally runs a post-grasp move. 
+
+- [Control stack overview](./docs/control/control_stack_overview.md)
+- [Grasping pipeline](./docs/control/grasping_pipeline.md)
+
+### Arm Control and Workspace Creation
+
+This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
+
+- [Arm Control](./docs/control/arm_control.md)
+- [Workspace Creation](./docs/control/workspace_creation.md)
+
 ### Arm Controller
 
-In this grasping framework, we utilize following manipulators. Instructions related to setup, configuration and customization are in the linked file.
+In this grasping framework, we utilize the following manipulators. Instructions related to setup, configuration and customization are in the linked file.
 
 - [UR Manipulator](./docs/manipulator/universal.md)
 - [TM Manipulator](./docs/manipulator/techman.md)
@@ -39,23 +68,6 @@ In this grasping framework, we evaluate different gripper types. Due to this we 
 
 - [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
 - [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
-
-### Anygrasp Node
-
-In this grasping framework we utilize anygrasp for grasp pose detection. We have configured the devcontainer to install the anygraph along with its dependencies. Instructions for license requesting, license loading, node customization and starting can be found in [docs/anygrasp.md](./docs/anygrasp.md).
-
-### Grasping Pipeline
-
-The grasping pipeline handles two roles:
-
-- `grasping_node` orchestrates the main pipeline: It requests a grasp pose from AnyGrasp, calls the arm-control action, closes the gripper, and optionally runs a post-grasp move.
-- `arm_control_node` owns motion execution: transforms poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
-
-Related documentation:
-
-- [Control Pipeline](./docs/control/grasping.md): pipeline modes, Trigger service usage, launch flow, and `grasping_node` parameters
-- [Arm Control](./docs/control/arm_control.md): `MoveToPose` action interface, planning-scene loading, workspace-area filtering, and RViz marker visualization
-- [Workspace Creation](./docs/control/workspace_creation.md): interactive calibration flow for collision objects and the square workspace area
 
 ## Building container
 
