@@ -52,6 +52,7 @@ The grasping pipeline is the main component that orchestrates the grasping proce
 
 This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
 
+- [UR10 calibration](./docs/control/ur_calibration.md)
 - [Arm Control](./docs/control/arm_control.md)
 - [Workspace Creation](./docs/control/workspace_creation.md)
 
@@ -60,7 +61,6 @@ This component transforms grasp poses, applies workspace obstacles to MoveIt, vi
 In this grasping framework, we utilize the following manipulators. Instructions related to setup, configuration and customization are in the linked file.
 
 - [UR Manipulator](./docs/manipulator/universal.md)
-- [TM Manipulator](./docs/manipulator/techman.md)
 
 ### Gripper Controller
 
@@ -90,23 +90,14 @@ source install/setup.bash
 ros2 launch grasping_camera d435.launch.py
 ```
 
-### Start the Manipulator
+### Start the UR10 Manipulator with MoveIt
 
 Use the following command to start the UR robot control
 
 ```bash
 source install/setup.bash
-ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
+ros2 launch grasping_arm_control ur10.launch.py
 ```
-
-or use the following command to start the Omron Moma robot control
-
-```bash
-source install/setup.bash
-ros2 launch moma_ros ld250_tm12x.launch.py use_rviz:=true use_base:=false
-```
-
-Or utilize any other supported manipulator by launching the relevant launch file.
 
 ### Start the gripper
 

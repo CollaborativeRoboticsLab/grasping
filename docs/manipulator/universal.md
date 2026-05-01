@@ -15,16 +15,31 @@ Since the calibration step depends on each robot, follow the instruction here to
 
 ## Start the UR robot
 
-Use the following command to start the ur moveit control
+Use the following command to start the UR robot control
 
 ```bash
 source install/setup.bash
-ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur10 robot_ip:=10.0.0.89
+ros2 launch grasping_arm_control ur10.launch.py
 ```
 
-## Start UR10 control with rviz
+This wrapper launch file includes the default `ur_robot_driver` and `ur_moveit_config` launches with these defaults:
+
+- `ur_type:=ur10`
+- `robot_ip:=10.0.0.89`
+- `kinematics_params_file:=/home/ubuntu/colcon_ws/src/ur_grasping/grasping_arm_control/config/ur_kinematics.yaml`
+- `launch_rviz:=true`
+- `initial_joint_controller:=scaled_joint_trajectory_controller`
+
+Override any of them on the command line when needed, for example
 
 ```bash
 source install/setup.bash
-ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur10 launch_rviz:=true
+ros2 launch grasping_arm_control ur10.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
+```
+
+if the execution fails, try the following command
+
+```bash
+source install/setup.bash
+ros2 service call /controller_manager/switch_controller controller_manager_msgs/srv/SwitchController "{activate_controllers: ['scaled_joint_trajectory_controller'], deactivate_controllers: [], strictness: 1, activate_asap: true, timeout: {sec: 5, nanosec: 0}}"
 ```
