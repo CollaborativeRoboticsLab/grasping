@@ -13,6 +13,7 @@ def generate_launch_description():
 
 	ur_type = LaunchConfiguration('ur_type')
 	robot_ip = LaunchConfiguration('robot_ip')
+	reverse_ip = LaunchConfiguration('reverse_ip')
 	kinematics_params_file = LaunchConfiguration('kinematics_params_file')
 	launch_rviz = LaunchConfiguration('launch_rviz')
 	initial_joint_controller = LaunchConfiguration('initial_joint_controller')
@@ -25,6 +26,7 @@ def generate_launch_description():
 		launch_arguments={
 			'ur_type': ur_type,
 			'robot_ip': robot_ip,
+			'reverse_ip': reverse_ip,
 			'kinematics_params_file': kinematics_params_file,
 			'initial_joint_controller': initial_joint_controller,
 			'activate_joint_controller': activate_joint_controller,
@@ -44,6 +46,7 @@ def generate_launch_description():
 	return LaunchDescription([
 		DeclareLaunchArgument('ur_type', default_value='ur10'),
 		DeclareLaunchArgument('robot_ip', default_value='10.0.0.89'),
+		DeclareLaunchArgument('reverse_ip', default_value='10.0.0.224'),
 		DeclareLaunchArgument(
 			'kinematics_params_file',
 			default_value=str(
