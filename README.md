@@ -1,8 +1,9 @@
 # Grasping Stack
 
-This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) and [TM Robots](https://www.tm-robot.com/en/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
+This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
 
-The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](https://hub.docker.com/layers/pytorch/pytorch/2.10.0-cuda12.6-cudnn9-devel/images/sha256-df80e10d07cd114c5f33380e3df7b6c5a3caab8481f68509ea652a7c0908316e) image and provides
+The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](https://hub.docker.com/layers/pytorch/pytorch/2.10.0-cuda12.6-cudnn9-devel/images/sha256-df80e10d07cd114c5f33380e3df7b6c5a3caab8481f68509ea652a7c0908316e) image and provides the following software stack:
+
 - Pytorch 2.10
 - CUDA 12.6
 - CUDNN9
@@ -12,9 +13,8 @@ The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](http
 - [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
 - [Realsense packages](https://github.com/realsenseai/realsense-ros)
 - [UR packages](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver)
-- [TM packages](https://github.com/CollaborativeRoboticsLab/tmr_ros2)
 
-Read here for [known issues and fixes](./docs/issues.md)
+Read here for [known issues and how we fixed them](./docs/issues.md)
 
 ## System Architecture
 
@@ -48,19 +48,20 @@ The grasping pipeline is the main component that orchestrates the grasping proce
 - [Control stack overview](./docs/control/control_stack_overview.md)
 - [Grasping pipeline](./docs/control/grasping_pipeline.md)
 
+### Arm Controller
+
+In this grasping framework, we utilize the ur10 manipulator. Instructions related to setup, configuration and calibration are in the linked files.
+
+- [UR10 and Devcontainer connection](./docs/manipulator/connection.md)
+- [UR10 calibration](./docs/manipulator/calibration.md)
+- [UR10 startup](./docs/manipulator/universal.md)
+
 ### Arm Control and Workspace Creation
 
 This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
 
-- [UR10 calibration](./docs/control/ur_calibration.md)
-- [Arm Control](./docs/control/arm_control.md)
 - [Workspace Creation](./docs/control/workspace_creation.md)
-
-### Arm Controller
-
-In this grasping framework, we utilize the following manipulators. Instructions related to setup, configuration and customization are in the linked file.
-
-- [UR Manipulator](./docs/manipulator/universal.md)
+- [Arm Control](./docs/control/arm_control.md)
 
 ### Gripper Controller
 

@@ -10,8 +10,7 @@ If you are setting this up yourself (outside the devcontainer) and using a Unive
 
 We are using a `ur10` mnaipulator in our system and we utilize standard launch files to start the robot. 
 
-Since the calibration step depends on each robot, follow the instruction here to [calibrate](https://docs.universal-robots.com/Universal_Robots_ROS2_Documentation/doc/ur_robot_driver/ur_robot_driver/doc/installation/robot_setup.html#extract-calibration-information).
-
+Since the calibration step depends on each robot, follow the instruction here to [calibrate](./../control/ur_calibration.md).
 
 ## Start the UR robot
 

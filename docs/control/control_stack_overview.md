@@ -120,9 +120,9 @@ For end effector to camera:
 ## Typical Run
 
 1. Start MoveIt and the robot driver.
-2. Start the gripper action server.
-3. Start AnyGrasp.
-4. Calibrate or update `workspace.yaml` with `workspace_calibration` if needed.
+2. Calibrate or update `workspace.yaml` with `workspace_calibration` if needed.
+3. Start the gripper action server.
+4. Start AnyGrasp.
 5. Launch `grip.launch.py`.
 6. Trigger `/grasping_node/run_grasp`, or run the launch file with `server_mode:=false`.
 
