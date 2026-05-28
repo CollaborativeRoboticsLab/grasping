@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel AS base
+FROM pytorch/pytorch:2.9.1-cuda12.6-cudnn9-devel AS base
 
 ## Set environment variables for CUDA and PyTorch
 ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 6.2 7.0 7.2 7.5 8.0 8.6" 
@@ -122,11 +122,11 @@ RUN ./config  && \
     ln -s /usr/local/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
 
 ############################################################################
-####        Install ROS2 Jazzy and ROS development tools
+####        Install ROS2 Humble and ROS development tools
 ############################################################################
 
 ## Set ROS distribution as an environment variable
-ENV ROS_DISTRO=jazzy
+ENV ROS_DISTRO=Humble
 ENV DEBIAN_FRONTEND=noninteractive
 
 ## Check and update locale settings
@@ -172,7 +172,7 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-## Set RMW implementation to CycloneDDS as it is the default and recommended for ROS 2 Jazzy
+## Set RMW implementation to CycloneDDS as it is the default and recommended for ROS 2 Humble
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 # Initialize rosdep as root

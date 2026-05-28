@@ -1,5 +1,5 @@
 {
-  "name": "UR10 Grasping Jazzy base",
+  "name": "UR10 Grasping Humble base",
   "context": "../",
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
