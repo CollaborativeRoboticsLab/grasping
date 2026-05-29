@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.9.1-cuda12.6-cudnn9-devel AS base
+FROM nvidia/cuda:12.6.0-cudnn-devel-ubuntu22.04 AS base
 
 ## Set environment variables for CUDA and PyTorch
 ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 6.2 7.0 7.2 7.5 8.0 8.6" 
@@ -21,30 +21,37 @@ RUN apt-get update && \
     ninja-build \
     net-tools \
     libopenblas-dev \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    python3-numpy \
+    python-is-python3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m pip config set global.break-system-packages true
+# ###################################################################################################
+# ####       Fallback to numpy 1.x version
+# ###################################################################################################
 
-###################################################################################################
-####       Fallback to numpy 1.x version
-###################################################################################################
+# ## Fix for ImportError: A module that was compiled using NumPy 1.x cannot be run in NumPy 2.0.0 as 
+# ##         it may crash. To support both 1.x and 2.x versions of NumPy, modules must be compiled 
+# ##         with NumPy 2.0. Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
 
-## Fix for ImportError: A module that was compiled using NumPy 1.x cannot be run in NumPy 2.0.0 as 
-##         it may crash. To support both 1.x and 2.x versions of NumPy, modules must be compiled 
-##         with NumPy 2.0. Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+# RUN python -m pip uninstall -y numpy 
 
-RUN python -m pip uninstall -y numpy 
+############################################################################
+####        Install Pytoch and torchvision
+############################################################################
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3-numpy
+RUN python -m pip install --no-cache-dir torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu126
 
 ############################################################################
 ####        Install MinkowskiEngine
 ############################################################################
 
 ## Fix issues per https://github.com/Julie-tang00/Common-envs-issues/blob/main/Cuda12-MinkowskiEngine
-RUN sed -i 's/\bauto __raw = __to_address(__r.get());/auto __raw = std::__to_address(__r.get());/' /usr/include/c++/13/bits/shared_ptr_base.h
+RUN sed -i 's/\bauto __raw = __to_address(__r.get());/auto __raw = std::__to_address(__r.get());/' /usr/include/c++/11/bits/shared_ptr_base.h
 
 WORKDIR /dependencies
 RUN git clone --recursive https://github.com/chenxi-wang/MinkowskiEngine.git
@@ -91,9 +98,9 @@ RUN python -m pip install "numpy<2.0" --no-cache-dir --no-build-isolation .
 WORKDIR /dependencies/precompiled
 
 # Move library files
-RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled/gsnet.so
-RUN cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled/lib_cxx.so
-RUN cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-312-x86_64-linux-gnu.so /dependencies/precompiled/tracker.so
+RUN cp /dependencies/anygrasp_sdk/grasp_detection/gsnet_versions/gsnet.cpython-310-x86_64-linux-gnu.so /dependencies/precompiled/gsnet.so
+RUN cp /dependencies/anygrasp_sdk/grasp_tracking/tracker_versions/tracker.cpython-310-x86_64-linux-gnu.so /dependencies/precompiled/tracker.so
+RUN cp /dependencies/anygrasp_sdk/license_registration/lib_cxx_versions/lib_cxx.cpython-310-x86_64-linux-gnu.so /dependencies/precompiled/lib_cxx.so
 
 # update python syspath
 ENV PYTHONPATH="${PYTHONPATH}:/dependencies/precompiled"
@@ -126,7 +133,7 @@ RUN ./config  && \
 ############################################################################
 
 ## Set ROS distribution as an environment variable
-ENV ROS_DISTRO=Humble
+ENV ROS_DISTRO=humble
 ENV DEBIAN_FRONTEND=noninteractive
 
 ## Check and update locale settings
@@ -185,7 +192,7 @@ RUN rosdep init && rosdep update
 # make sure folders exist
 WORKDIR /home/ubuntu/colcon_ws/src
 
-RUN git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git
+RUN git clone https://github.com/CollaborativeRoboticsLab/anygrasp_ros.git -b humble
 
 ############################################################################
 ####        Install Realsense packages
@@ -209,6 +216,12 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Patch the UR external control script for CB3 PolyScope 3.13.x compatibility.
+# Newer ur_client_library releases use list * float in extrapolate(), which
+# raises "Unsupported operand type(s) for *: list and Float" on older robots.
+RUN perl -0pi -e 's#def extrapolate\(\):\n  cmd_servo_q_last = cmd_servo_q\n  cmd_servo_q = cmd_servo_q \+ \(get_target_joint_speeds\(\) \* steptime\)\n  return cmd_servo_q\nend#def extrapolate():\n  local qd = get_target_joint_speeds()\n  cmd_servo_q_last = cmd_servo_q\n  cmd_servo_q = [\n    cmd_servo_q[0] + qd[0] * steptime,\n    cmd_servo_q[1] + qd[1] * steptime,\n    cmd_servo_q[2] + qd[2] * steptime,\n    cmd_servo_q[3] + qd[3] * steptime,\n    cmd_servo_q[4] + qd[4] * steptime,\n    cmd_servo_q[5] + qd[5] * steptime\n  ]\n  return cmd_servo_q\nend#s' /opt/ros/${ROS_DISTRO}/share/ur_client_library/resources/external_control.urscript && \
+    grep -q 'local qd = get_target_joint_speeds()' /opt/ros/${ROS_DISTRO}/share/ur_client_library/resources/external_control.urscript
+
 ############################################################################
 ####        Install grippers packages
 ############################################################################
@@ -222,7 +235,7 @@ RUN apt-get update && \
 
 WORKDIR /home/ubuntu/colcon_ws/src/
 
-RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git
+RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git -b humble
 
 ############################################################################
 ####      Add vscode user
@@ -231,26 +244,33 @@ RUN git clone https://github.com/CollaborativeRoboticsLab/grippers.git
 # Add vscode user with same UID and GID as your host system
 # (modified from https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user#_creating-a-nonroot-user)
 # ubuntu now has a 1000 user ubuntu
-
-ARG USERNAME=ubuntu
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-
 RUN apt-get update && \
     apt-get install  --no-install-recommends -y \
     sudo  \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && rm -rf /var/lib/apt/lists/*
+    
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
+
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 RUN mkdir -p /home/ubuntu/colcon_ws/src /home/ubuntu/colcon_ws/build /home/ubuntu/colcon_ws/install /home/ubuntu/colcon_ws/log && \
-    chown -R $USERNAME:$USERNAME /home/ubuntu/colcon_ws
+    touch /home/ubuntu/.bashrc && \
+    chown -R $USERNAME:$USERNAME /home/ubuntu
 
 # Switch from root to user
 USER $USERNAME
 
-# Source the ROS setup file
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
+# Source the ROS setup file and set a custom PS1 prompt in the user's bashrc
+RUN cat <<'EOF' >> ~/.bashrc
+source /opt/ros/${ROS_DISTRO}/setup.bash
+PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+EOF
 
 WORKDIR /

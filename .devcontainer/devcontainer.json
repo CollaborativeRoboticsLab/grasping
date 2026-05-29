@@ -1,12 +1,13 @@
 {
   "name": "UR10 Grasping Humble base",
-  "context": "../",
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
   "containerEnv": {
     "DISPLAY": "${localEnv:DISPLAY}"
   },
   "runArgs": [
+    "--hostname",
+    "kalana-laptop",
     "--privileged",
     "--network=bridge",
     "--mac-address=02:42:de:ad:be:ef",
