@@ -142,16 +142,30 @@ There is no special requirement such as "top-left first". The important rule is 
 
 The workspace area is not added to the MoveIt planning scene as a collision object.
 
-## Rectangle Convention
+## Rectangle Conventions
 
-For a rectangle:
+For `top_surface_rectangle`:
 
 1. Move the tool to each top-face corner in order around the object.
 2. Capture all four points.
-3. The node estimates the center and the two planar dimensions from the sampled edges.
+3. The node estimates the center, in-plane rotation, and the two planar dimensions from the sampled edges.
 4. The object height is computed as `top_z - ground_plane_z`.
 
-The saved geometry becomes a box aligned with the base frame.
+The saved geometry becomes a box whose top face matches the captured rectangle.
+
+For `side_face_rectangle`:
+
+1. Move the tool to each side-face corner in order around the visible face.
+2. Capture all four points.
+3. Enter the obstacle depth measured inward from that captured face.
+4. The node extrudes the captured face by the entered depth to build the box.
+
+For `bottom_face_rectangle`:
+
+1. Move the tool to each bottom-face corner in order around the hanging obstacle.
+2. Capture all four points.
+3. Enter the obstacle height above that captured bottom face.
+4. The node extends the box upward from the captured face by the entered height.
 
 ## Cylinder Convention
 
@@ -175,12 +189,36 @@ The saved geometry becomes a cylinder aligned with the base frame.
 
 If you override `workspace_config_path`, point `arm_control_node` at the same file so both nodes use the same calibrated scene.
 
-## Usage
 
-Run the calibration node with:
+
+## Usage Commands
+
+- Start the ur10 arm:
 
 ```bash
+source install/setup.bash
+ros2 launch grasping_arm_control ur10.launch.py
+```
+
+- Start workspace calibration:
+
+```bash
+source install/setup.bash
 ros2 run grasping_arm_control workspace_calibration
+```
+
+- Start the arm control node with the calibrated workspace file:
+
+```bash
+source install/setup.bash
+ros2 run grasping_arm_control arm_control_node
+```
+
+- Start the arm control node with an explicit workspace file override:
+
+```bash
+source install/setup.bash
+ros2 run grasping_arm_control arm_control_node --ros-args -p workspace_config_path:=/path/to/workspace.yaml
 ```
 
 ## Typical Session

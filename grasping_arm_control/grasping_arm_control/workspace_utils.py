@@ -54,11 +54,35 @@ def default_shape_definitions() -> Dict[str, Any]:
 	return {
 		'version': 1,
 		'shapes': {
-			'rectangle': {
-				'display_name': 'Rectangular prism',
+			'top_surface_rectangle': {
+				'display_name': 'Top-surface rectangle',
 				'geometry_type': 'box',
 				'description': 'Capture the four top-face corners in order around the object.',
 				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
+			},
+			'side_face_rectangle': {
+				'display_name': 'Side-face rectangle',
+				'geometry_type': 'box',
+				'description': 'Capture the four side-face corners in order around the visible surface, then enter the obstacle depth from that face.',
+				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
+				'manual_parameters': {
+					'depth': {
+						'prompt': 'Enter obstacle depth from the captured side face in meters',
+						'min_value': 0.0,
+					},
+				},
+			},
+			'bottom_face_rectangle': {
+				'display_name': 'Bottom-face rectangle',
+				'geometry_type': 'box',
+				'description': 'Capture the four bottom-face corners in order around the hanging obstacle, then enter the obstacle height above that face.',
+				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
+				'manual_parameters': {
+					'depth': {
+						'prompt': 'Enter obstacle height above the captured bottom face in meters',
+						'min_value': 0.0,
+					},
+				},
 			},
 			'cylinder': {
 				'display_name': 'Cylinder',
@@ -125,6 +149,7 @@ def build_geometry(
 	samples: List[Dict[str, Any]],
 	shape_definition: Dict[str, Any],
 	ground_plane_z: float,
+	shape_parameters: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
 	"""!
 	@brief Derive MoveIt-friendly geometry from captured calibration samples.
@@ -133,13 +158,19 @@ def build_geometry(
 	@param samples Raw capture samples collected from the robot pose.
 	@param shape_definition Shape metadata that describes the expected capture layout.
 	@param ground_plane_z Ground height in the base frame.
+	@param shape_parameters Optional operator-supplied parameters for the selected shape.
 	@return Geometry dictionary ready to be written into the workspace YAML.
 	"""
 	points = [sample['pose']['position'] for sample in samples]
 	geometry_type = shape_definition.get('geometry_type', 'generic')
+	shape_parameters = shape_parameters or {}
 
-	if shape_key == 'rectangle' and len(points) == 4:
-		return _build_rectangle_geometry(points, geometry_type, ground_plane_z)
+	if shape_key in {'rectangle', 'top_surface_rectangle'} and len(points) == 4:
+		return _build_top_surface_rectangle_geometry(points, geometry_type, ground_plane_z)
+	if shape_key == 'side_face_rectangle' and len(points) == 4:
+		return _build_side_face_rectangle_geometry(points, geometry_type, shape_parameters)
+	if shape_key == 'bottom_face_rectangle' and len(points) == 4:
+		return _build_bottom_face_rectangle_geometry(points, geometry_type, shape_parameters)
 	if shape_key == 'cylinder' and len(points) >= 2:
 		return _build_cylinder_geometry(points, geometry_type, ground_plane_z)
 
@@ -284,7 +315,7 @@ def collision_objects_from_workspace(
 	return objects
 
 
-def _build_rectangle_geometry(
+def _build_top_surface_rectangle_geometry(
 	points: List[Dict[str, float]],
 	geometry_type: str,
 	ground_plane_z: float,
@@ -297,38 +328,93 @@ def _build_rectangle_geometry(
 	@param ground_plane_z Ground height in the base frame.
 	@return Geometry dictionary describing a rectangular prism.
 	"""
-	edge_a = _distance(points[0], points[1])
-	edge_b = _distance(points[1], points[2])
-	edge_c = _distance(points[2], points[3])
-	edge_d = _distance(points[3], points[0])
-	size_x = (edge_a + edge_c) / 2.0
-	size_y = (edge_b + edge_d) / 2.0
-	top_z = sum(point['z'] for point in points) / len(points)
-	center_x = sum(point['x'] for point in points) / len(points)
-	center_y = sum(point['y'] for point in points) / len(points)
+	frame = _rectangle_frame(points)
+	top_z = frame['center']['z']
 	height = max(0.0, top_z - ground_plane_z)
+	center = _translate_point(frame['center'], frame['normal'], -(height / 2.0))
+	orientation = _quaternion_from_axes(frame['axis_u'], frame['axis_v'], frame['normal'])
 
 	return {
 		'type': geometry_type,
 		'dimensions': {
-			'x': size_x,
-			'y': size_y,
+			'x': frame['size_u'],
+			'y': frame['size_v'],
 			'z': height,
 		},
 		'pose': {
-			'position': {
-				'x': center_x,
-				'y': center_y,
-				'z': ground_plane_z + (height / 2.0),
-			},
-			'orientation': {
-				'x': 0.0,
-				'y': 0.0,
-				'z': 0.0,
-				'w': 1.0,
-			},
+			'position': center,
+			'orientation': orientation,
 		},
 		'top_face_points': points,
+	}
+
+
+def _build_side_face_rectangle_geometry(
+	points: List[Dict[str, float]],
+	geometry_type: str,
+	shape_parameters: Dict[str, Any],
+) -> Dict[str, Any]:
+	"""
+	@brief Build a box model from a captured side face and operator-supplied depth.
+
+	@param points Captured side-face corner positions.
+	@param geometry_type Output primitive type name.
+	@param shape_parameters Operator-supplied shape parameters.
+	@return Geometry dictionary describing a side-face anchored box.
+	"""
+	frame = _rectangle_frame(points)
+	depth = max(0.0, float(shape_parameters.get('depth', 0.0)))
+	center = _translate_point(frame['center'], frame['normal'], depth / 2.0)
+	orientation = _quaternion_from_axes(frame['axis_u'], frame['axis_v'], frame['normal'])
+
+	return {
+		'type': geometry_type,
+		'dimensions': {
+			'x': frame['size_u'],
+			'y': frame['size_v'],
+			'z': depth,
+		},
+		'pose': {
+			'position': center,
+			'orientation': orientation,
+		},
+		'face_points': points,
+	}
+
+
+def _build_bottom_face_rectangle_geometry(
+	points: List[Dict[str, float]],
+	geometry_type: str,
+	shape_parameters: Dict[str, Any],
+) -> Dict[str, Any]:
+	"""
+	@brief Build a box model from a captured bottom face and operator-supplied height.
+
+	@param points Captured bottom-face corner positions.
+	@param geometry_type Output primitive type name.
+	@param shape_parameters Operator-supplied shape parameters.
+	@return Geometry dictionary describing a hanging rectangular obstacle.
+	"""
+	frame = _rectangle_frame(points)
+	depth = max(0.0, float(shape_parameters.get('depth', 0.0)))
+	up_axis = {'x': 0.0, 'y': 0.0, 'z': 1.0}
+	axis_u = _normalize_vector({'x': frame['axis_u']['x'], 'y': frame['axis_u']['y'], 'z': 0.0})
+	axis_v = _normalize_vector(_cross_product(up_axis, axis_u))
+	center = _translate_point(frame['center'], up_axis, depth / 2.0)
+	orientation = _quaternion_from_axes(axis_u, axis_v, up_axis)
+
+	return {
+		'type': geometry_type,
+		'dimensions': {
+			'x': frame['size_u'],
+			'y': frame['size_v'],
+			'z': depth,
+		},
+		'pose': {
+			'position': center,
+			'orientation': orientation,
+		},
+		'bottom_face_points': points,
 	}
 
 
@@ -371,6 +457,212 @@ def _build_cylinder_geometry(
 			},
 		},
 		'top_face_points': points,
+	}
+
+
+def _rectangle_frame(points: List[Dict[str, float]]) -> Dict[str, Any]:
+	"""
+	@brief Build an orthonormal frame and dimensions from four rectangle corner samples.
+
+	@param points Captured rectangle corners in order around the face.
+	@return Rectangle center, in-plane axes, outward normal, and edge lengths.
+	"""
+	if len(points) != 4:
+		raise RuntimeError('Rectangle geometry requires exactly four corners.')
+
+	center = {
+		'x': sum(point['x'] for point in points) / len(points),
+		'y': sum(point['y'] for point in points) / len(points),
+		'z': sum(point['z'] for point in points) / len(points),
+	}
+	edge_u = _average_vector(_subtract_points(points[1], points[0]), _subtract_points(points[2], points[3]))
+	edge_v = _average_vector(_subtract_points(points[2], points[1]), _subtract_points(points[3], points[0]))
+	size_u = (_distance(points[0], points[1]) + _distance(points[2], points[3])) / 2.0
+	size_v = (_distance(points[1], points[2]) + _distance(points[3], points[0])) / 2.0
+	axis_u = _normalize_vector(edge_u)
+	axis_v = _normalize_vector(edge_v)
+	normal = _normalize_vector(_cross_product(axis_u, axis_v))
+
+	if normal['z'] < 0.0:
+		axis_v = _scale_vector(axis_v, -1.0)
+		normal = _scale_vector(normal, -1.0)
+
+	axis_v = _normalize_vector(_cross_product(normal, axis_u))
+	return {
+		'center': center,
+		'axis_u': axis_u,
+		'axis_v': axis_v,
+		'normal': normal,
+		'size_u': size_u,
+		'size_v': size_v,
+	}
+
+
+def _quaternion_from_axes(
+	axis_x: Dict[str, float],
+	axis_y: Dict[str, float],
+	axis_z: Dict[str, float],
+) -> Dict[str, float]:
+	"""
+	@brief Convert an orthonormal basis into a quaternion dictionary.
+
+	@param axis_x Local x axis.
+	@param axis_y Local y axis.
+	@param axis_z Local z axis.
+	@return Quaternion dictionary.
+	"""
+	m00 = axis_x['x']
+	m01 = axis_y['x']
+	m02 = axis_z['x']
+	m10 = axis_x['y']
+	m11 = axis_y['y']
+	m12 = axis_z['y']
+	m20 = axis_x['z']
+	m21 = axis_y['z']
+	m22 = axis_z['z']
+	trace = m00 + m11 + m22
+
+	if trace > 0.0:
+		s = math.sqrt(trace + 1.0) * 2.0
+		quaternion = {
+			'w': 0.25 * s,
+			'x': (m21 - m12) / s,
+			'y': (m02 - m20) / s,
+			'z': (m10 - m01) / s,
+		}
+	elif m00 > m11 and m00 > m22:
+		s = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
+		quaternion = {
+			'w': (m21 - m12) / s,
+			'x': 0.25 * s,
+			'y': (m01 + m10) / s,
+			'z': (m02 + m20) / s,
+		}
+	elif m11 > m22:
+		s = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
+		quaternion = {
+			'w': (m02 - m20) / s,
+			'x': (m01 + m10) / s,
+			'y': 0.25 * s,
+			'z': (m12 + m21) / s,
+		}
+	else:
+		s = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
+		quaternion = {
+			'w': (m10 - m01) / s,
+			'x': (m02 + m20) / s,
+			'y': (m12 + m21) / s,
+			'z': 0.25 * s,
+		}
+
+	normalized = normalize_quaternion(
+		Quaternion(
+			x=float(quaternion['x']),
+			y=float(quaternion['y']),
+			z=float(quaternion['z']),
+			w=float(quaternion['w']),
+		)
+	)
+	return {
+		'x': normalized.x,
+		'y': normalized.y,
+		'z': normalized.z,
+		'w': normalized.w,
+	}
+
+
+def _subtract_points(end: Dict[str, float], start: Dict[str, float]) -> Dict[str, float]:
+	"""
+	@brief Build a vector from start to end.
+
+	@param end Vector end point.
+	@param start Vector start point.
+	@return Vector components.
+	"""
+	return {
+		'x': float(end['x']) - float(start['x']),
+		'y': float(end['y']) - float(start['y']),
+		'z': float(end['z']) - float(start['z']),
+	}
+
+
+def _average_vector(first: Dict[str, float], second: Dict[str, float]) -> Dict[str, float]:
+	"""
+	@brief Average two vectors component-wise.
+
+	@param first First vector.
+	@param second Second vector.
+	@return Average vector.
+	"""
+	return {
+		'x': (float(first['x']) + float(second['x'])) / 2.0,
+		'y': (float(first['y']) + float(second['y'])) / 2.0,
+		'z': (float(first['z']) + float(second['z'])) / 2.0,
+	}
+
+
+def _cross_product(first: Dict[str, float], second: Dict[str, float]) -> Dict[str, float]:
+	"""
+	@brief Compute the cross product of two 3D vectors.
+
+	@param first First vector.
+	@param second Second vector.
+	@return Cross product vector.
+	"""
+	return {
+		'x': (float(first['y']) * float(second['z'])) - (float(first['z']) * float(second['y'])),
+		'y': (float(first['z']) * float(second['x'])) - (float(first['x']) * float(second['z'])),
+		'z': (float(first['x']) * float(second['y'])) - (float(first['y']) * float(second['x'])),
+	}
+
+
+def _normalize_vector(vector: Dict[str, float]) -> Dict[str, float]:
+	"""
+	@brief Normalize a 3D vector.
+
+	@param vector Vector to normalize.
+	@return Unit-length vector.
+	"""
+	length = math.sqrt(
+		(float(vector['x']) ** 2) + (float(vector['y']) ** 2) + (float(vector['z']) ** 2)
+	)
+	if length <= 1e-9:
+		raise RuntimeError('Captured rectangle points do not define a valid face.')
+	return {
+		'x': float(vector['x']) / length,
+		'y': float(vector['y']) / length,
+		'z': float(vector['z']) / length,
+	}
+
+
+def _scale_vector(vector: Dict[str, float], scale: float) -> Dict[str, float]:
+	"""
+	@brief Scale a vector by a scalar.
+
+	@param vector Vector to scale.
+	@param scale Scalar multiplier.
+	@return Scaled vector.
+	"""
+	return {
+		'x': float(vector['x']) * scale,
+		'y': float(vector['y']) * scale,
+		'z': float(vector['z']) * scale,
+	}
+
+
+def _translate_point(point: Dict[str, float], direction: Dict[str, float], distance: float) -> Dict[str, float]:
+	"""
+	@brief Translate a point along a direction vector by a scalar distance.
+
+	@param point Point to translate.
+	@param direction Translation direction.
+	@param distance Translation distance.
+	@return Translated point.
+	"""
+	return {
+		'x': float(point['x']) + (float(direction['x']) * distance),
+		'y': float(point['y']) + (float(direction['y']) * distance),
+		'z': float(point['z']) + (float(direction['z']) * distance),
 	}
 
 

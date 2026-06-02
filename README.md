@@ -2,12 +2,12 @@
 
 This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) using [AnyGrasp](https://github.com/graspnet/anygrasp_sdk) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
 
-The devcontainer is based on [pytorch/pytorch:2.10.0-cuda12.6-cudnn9-devel](https://hub.docker.com/layers/pytorch/pytorch/2.10.0-cuda12.6-cudnn9-devel/images/sha256-df80e10d07cd114c5f33380e3df7b6c5a3caab8481f68509ea652a7c0908316e) image and provides the following software stack:
+The devcontainer is based on [nvidia/cuda:12.6.0-cudnn-devel-ubuntu22.04](https://hub.docker.com/layers/nvidia/cuda/12.6.0-cudnn-devel-ubuntu22.04/images/sha256-3814ef2c9d46ca559e601374029a576596f016e33ddf48d6e2ad778d21bfa3f0) image and provides the following software stack:
 
 - Pytorch 2.10
 - CUDA 12.6
 - CUDNN9
-- ROS Jazzy (Base container is ubuntu 24.04)
+- ROS Humble (Base container is ubuntu 22.04)
 - [chenxi-wang/MinkowskiEngine](https://github.com/chenxi-wang/MinkowskiEngine.git)
 - [CollaborativeRoboticsLab/graspnetAPI](https://github.com/CollaborativeRoboticsLab/graspnetAPI.git)
 - [graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk.git)
@@ -60,7 +60,7 @@ In this grasping framework, we utilize the ur10 manipulator. Instructions relate
 
 This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
 
-- [Workspace Creation](./docs/control/workspace_creation.md)
+- [Workspace Creation](./docs/workspace/creation.md)
 - [Arm Control](./docs/control/arm_control.md)
 
 ### Gripper Controller

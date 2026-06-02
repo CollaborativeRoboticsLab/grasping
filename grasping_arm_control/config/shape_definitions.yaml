@@ -9,8 +9,8 @@ shapes:
       - corner_2
       - corner_3
       - corner_4
-  rectangle:
-    display_name: Rectangular prism
+  top_surface_rectangle:
+    display_name: Top-surface rectangle
     geometry_type: box
     description: Capture the four top-face corners in order around the object.
     point_labels:
@@ -18,6 +18,32 @@ shapes:
       - corner_2
       - corner_3
       - corner_4
+  side_face_rectangle:
+    display_name: Side-face rectangle
+    geometry_type: box
+    description: Capture the four side-face corners in order around the visible surface, then enter the obstacle depth from that face.
+    point_labels:
+      - corner_1
+      - corner_2
+      - corner_3
+      - corner_4
+    manual_parameters:
+      depth:
+        prompt: Enter obstacle depth from the captured side face in meters
+        min_value: 0.0
+  bottom_face_rectangle:
+    display_name: Bottom-face rectangle
+    geometry_type: box
+    description: Capture the four bottom-face corners in order around the hanging obstacle, then enter the obstacle height above that face.
+    point_labels:
+      - corner_1
+      - corner_2
+      - corner_3
+      - corner_4
+    manual_parameters:
+      depth:
+        prompt: Enter obstacle height above the captured bottom face in meters
+        min_value: 0.0
   cylinder:
     display_name: Cylinder
     geometry_type: cylinder

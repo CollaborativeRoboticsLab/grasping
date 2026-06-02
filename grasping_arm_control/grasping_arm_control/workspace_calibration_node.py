@@ -34,6 +34,7 @@ class WorkspaceCalibrationNode(Node):
 		self.declare_parameter('tool_frame', 'tool0')
 		self.declare_parameter('ground_plane_z', 0.0)
 		self.declare_parameter('workspace_config_path', '')
+		self.declare_parameter('get_package_share_directory', '')
 		self.declare_parameter('shape_definitions_path', '')
 
 		self._joint_state_lock = threading.Lock()
@@ -46,6 +47,11 @@ class WorkspaceCalibrationNode(Node):
 		self._workspace_config_path = resolve_config_path(
 			'grasping_arm_control',
 			str(self.get_parameter('workspace_config_path').value),
+			'workspace.yaml',
+		)
+		self._workspace_write_path = resolve_config_path(
+			'grasping_arm_control',
+			str(self.get_parameter('workspace_write_path').value),
 			'workspace.yaml',
 		)
 		self._shape_definitions_path = resolve_config_path(
@@ -73,6 +79,7 @@ class WorkspaceCalibrationNode(Node):
 			f'Listening for joint states on {joint_state_topic} and TF {self._base_frame} -> {self._tool_frame}'
 		)
 		self.get_logger().info(f'Workspace config: {self._workspace_config_path}')
+		self.get_logger().info(f'Workspace write path: {self._workspace_write_path}')
 		self.get_logger().info(f'Shape definitions: {self._shape_definitions_path}')
 
 	def _joint_state_callback(self, msg: JointState) -> None:
@@ -323,19 +330,77 @@ class WorkspaceCalibrationNode(Node):
 				samples.append(sample)
 				break
 
+		shape_parameters = self._prompt_for_shape_parameters(shape_definition)
+		if shape_parameters is None:
+			return None
+
 		geometry = build_geometry(
 			object_entry['shape'],
 			samples,
 			shape_definition,
 			self._ground_plane_z,
+			shape_parameters,
 		)
 		object_entry['updated_at'] = iso_timestamp()
 		object_entry['base_frame'] = self._base_frame
 		object_entry['tool_frame'] = self._tool_frame
 		object_entry['ground_plane_z'] = self._ground_plane_z
 		object_entry['capture_samples'] = samples
+		if shape_parameters:
+			object_entry['shape_parameters'] = shape_parameters
+		elif 'shape_parameters' in object_entry:
+			del object_entry['shape_parameters']
 		object_entry['geometry'] = geometry
 		return object_entry
+
+	def _prompt_for_shape_parameters(self, shape_definition: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Prompt the operator for any manual parameters required by the shape.
+
+		@param shape_definition Selected shape definition.
+		@return Shape parameter mapping, or None when the operator cancels.
+		"""
+		manual_parameters = shape_definition.get('manual_parameters', {})
+		if not isinstance(manual_parameters, dict) or not manual_parameters:
+			return {}
+
+		captured_parameters: Dict[str, Any] = {}
+		for parameter_name, parameter_definition in manual_parameters.items():
+			if not isinstance(parameter_definition, dict):
+				parameter_definition = {}
+
+			prompt = str(parameter_definition.get('prompt', f'Enter {parameter_name}: ')).strip()
+			if not prompt.endswith(':'):
+				prompt = f'{prompt}: '
+			else:
+				prompt = f'{prompt} '
+
+			min_value = parameter_definition.get('min_value')
+			max_value = parameter_definition.get('max_value')
+
+			while rclpy.ok():
+				response = input(prompt).strip().lower()
+				if response in {'cancel', 'c', 'q'}:
+					print('Object capture cancelled.')
+					return None
+
+				try:
+					value = float(response)
+				except ValueError:
+					print('Enter a numeric value or type cancel.')
+					continue
+
+				if min_value is not None and value < float(min_value):
+					print(f'Value must be at least {float(min_value):.4f}.')
+					continue
+				if max_value is not None and value > float(max_value):
+					print(f'Value must be at most {float(max_value):.4f}.')
+					continue
+
+				captured_parameters[parameter_name] = value
+				break
+
+		return captured_parameters
 
 	def _capture_workspace_area(self) -> Optional[Dict[str, Any]]:
 		"""
@@ -448,8 +513,9 @@ class WorkspaceCalibrationNode(Node):
 		@param workspace_config Workspace configuration to write.
 		@return Normalized workspace configuration that was persisted.
 		"""
+		# Persist to the configured write path so users can separate read vs write locations
 		return write_workspace_config(
-			self._workspace_config_path,
+			self._workspace_write_path,
 			workspace_config,
 			self._base_frame,
 			self._tool_frame,
