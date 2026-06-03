@@ -91,6 +91,15 @@ source install/setup.bash
 ros2 launch grasping_camera d435.launch.py
 ```
 
+### Starting the anygrasp detection system
+
+Use the following command to start the anygrasp system
+
+```bash
+source install/setup.bash
+ros2 launch anygrasp_ros detection.launch.py
+```
+
 ### Start the UR10 Manipulator with MoveIt
 
 Use the following command to start the UR robot control
@@ -107,15 +116,6 @@ Use the following command to start the gripper controller
 ```bash
 source install/setup.bash
 ros2 launch gripper_ros dynamixel.launch.py
-```
-
-### Starting the anygrasp detection system
-
-Use the following command to start the anygrasp system
-
-```bash
-source install/setup.bash
-ros2 launch anygrasp_ros detection.launch.py
 ```
 
 ### Start the gripping process

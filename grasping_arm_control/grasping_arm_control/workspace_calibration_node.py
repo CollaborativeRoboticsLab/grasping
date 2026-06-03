@@ -34,6 +34,7 @@ class WorkspaceCalibrationNode(Node):
 		self.declare_parameter('tool_frame', 'tool0')
 		self.declare_parameter('ground_plane_z', 0.0)
 		self.declare_parameter('workspace_config_path', '')
+		self.declare_parameter('workspace_write_path', '')
 		self.declare_parameter('get_package_share_directory', '')
 		self.declare_parameter('shape_definitions_path', '')
 
