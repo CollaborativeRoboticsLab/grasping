@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+	<xacro:macro name="camera_mount" params="parent prefix:='' xyz:='0 0 0' rpy:='0 0 0' scale:='1 1 1'">
+		<material name="${prefix}camera_mount_gray">
+			<color rgba="0.7 0.7 0.7 1.0" />
+		</material>
+
+		<link name="${prefix}camera_mount_link">
+			<visual>
+				<origin xyz="0 0 0" rpy="-1.57 3.14 1.57" />
+				<geometry>
+					<mesh filename="package://grasping_description/meshes/camera-mount.stl" scale="${scale}" />
+				</geometry>
+				<material name="${prefix}camera_mount_gray" />
+			</visual>
+
+			<collision>
+				<origin xyz="0 0 0" rpy="-1.57 3.14 1.57" />
+				<geometry>
+					<mesh filename="package://grasping_description/meshes/camera-mount.stl" scale="${scale}" />
+				</geometry>
+			</collision>
+		</link>
+
+		<joint name="${prefix}tool0_to_camera_mount" type="fixed">
+			<parent link="${parent}" />
+			<child link="${prefix}camera_mount_link" />
+			<origin xyz="${xyz}" rpy="${rpy}" />
+		</joint>
+	</xacro:macro>
+</robot>

@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
@@ -27,10 +27,18 @@ def generate_launch_description():
 			'ur_type': ur_type,
 			'robot_ip': robot_ip,
 			'reverse_ip': reverse_ip,
+			'description_package': 'grasping_description',
+			'description_file': 'ur10-with-camera-mount.urdf.xacro',
+			'launch_rviz': 'false',
 			'kinematics_params_file': kinematics_params_file,
 			'initial_joint_controller': initial_joint_controller,
 			'activate_joint_controller': activate_joint_controller,
 		}.items(),
+	)
+
+	ur_control_group = GroupAction(
+		scoped=True,
+		actions=[ur_control_launch],
 	)
 
 	ur_moveit_launch = IncludeLaunchDescription(
@@ -39,8 +47,15 @@ def generate_launch_description():
 		),
 		launch_arguments={
 			'ur_type': ur_type,
+			'description_package': 'grasping_description',
+			'description_file': 'ur10-with-camera-mount.urdf.xacro',
 			'launch_rviz': launch_rviz,
 		}.items(),
+	)
+
+	ur_moveit_group = GroupAction(
+		scoped=True,
+		actions=[ur_moveit_launch],
 	)
 
 	return LaunchDescription([
@@ -59,6 +74,6 @@ def generate_launch_description():
 			default_value='scaled_joint_trajectory_controller',
 		),
 		DeclareLaunchArgument('activate_joint_controller', default_value='true'),
-		ur_control_launch,
-		ur_moveit_launch,
+		ur_control_group,
+		ur_moveit_group,
 	])

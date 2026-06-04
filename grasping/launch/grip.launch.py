@@ -6,26 +6,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description() -> LaunchDescription:
 
-	# Static TFs are provided as quaternion transforms, to avoid roll/pitch/yaw ordering ambiguity.
-	# Args: x y z qx qy qz qw parent child
-	ee_to_gripper_tf = Node(
-		package="tf2_ros",
-		executable="static_transform_publisher",
-		name="ee_to_gripper_static_tf",
-		output="screen",
-		# arguments=[ "x", "y", "z", "qx", "qy", "qz", "qw", "endeffector_frame", "gripper_frame" ],
-		arguments=[ "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "1.0", "tool0", "gripper" ],
-	)
-
-	ee_to_camera_tf = Node(
-		package="tf2_ros",
-		executable="static_transform_publisher",
-		name="ee_to_camera_static_tf",
-		output="screen",
-		# arguments=[ "x", "y", "z", "qx", "qy", "qz", "qw", "endeffector_frame", "camera_frame" ],
-		arguments=[ "0.025", "0.0", "0.083", "0.0", "0.0", "0.0", "1.0", "tool0", "camera_link" ],
-	)
-
 	arm_control_node = Node(
 		package="grasping_arm_control",
 		executable="arm_control_node",
@@ -92,8 +72,6 @@ def generate_launch_description() -> LaunchDescription:
 			DeclareLaunchArgument("close_action_name", default_value="/close_gripper"),
 			DeclareLaunchArgument("do_post_grasp_move", default_value="true"),
 			DeclareLaunchArgument("post_grasp_frame", default_value="base_link"),
-			ee_to_gripper_tf,
-			ee_to_camera_tf,
 			arm_control_node,
 			grasping_node,
 		]
