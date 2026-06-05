@@ -14,15 +14,26 @@ cp /home/ubuntu/colcon_ws/src/grasping/docs/external/cyclonedds.xml /home/ubuntu
 
 Modify the `cyclonedds.xml` with the following information,
 
+```
 DEVICE_1_PHYSICAL_IP - set the ip address of the external device
 DEVICE_2_PHYSICAL_IP - set the ip address of this device
+```
 
 Update the `devcontainer.json` with following values,
 
 ```json
--p 26400-26420:26400-26420/udp \
--e ROS_DOMAIN_ID=76 \
--e CYCLONEDDS_URI=/home/ubuntu/colcon_ws/src/grasping/cyclonedds.xml \
+{
+  "containerEnv": {
+    "CYCLONEDDS_URI": "/home/ubuntu/colcon_ws/src/grasping/cyclonedds.xml",
+    "ROS_DOMAIN_ID": "76"
+  },
+  "runArgs": [
+    "--privileged",
+    "--network=bridge",
+    "-p",
+    "26400-26420:26400-26420/udp",
+  ],
+}
 ```
 
 first values opens up the udp ports, second values sets the ROS_DOMAIN_ID and the last values sents the new config file for cyclonedds.
@@ -41,18 +52,25 @@ Copy the content of the `external.xml` into the devcontainer of the external dev
 
 Modify the new `cyclonedds.xml` with the following information,
 
+```
 DEVICE_2_PHYSICAL_IP - set the ip address of this device (not the externl device) so that it can find this device.
-
-once the file is updated, add the following values into the `devcontainer.json`
-
-```json
--e ROS_DOMAIN_ID=76 \
--e CYCLONEDDS_URI=file:///path/to/cyclonedds.xml \
 ```
 
-first values sets the ROS_DOMAIN_ID and the second values sents the new config file for cyclonedds.
+once the file is updated, run the following commands in the terminal
 
-Save and restart the devcontainer.
+```bash
+export ROS_DOMAIN_ID=76
+export CYCLONEDDS_URI=file:///path/to/cyclonedds.xml
+```
+
+Next restart the ros2 daemon
+
+```bash
+ros2 daemon stop
+ros2 daemon start
+```
+
+And then run the ros nodes in the terminal. when opening multiple terminals, run these export commands in each.
 
 ## Test
 

@@ -3,7 +3,9 @@
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
   "containerEnv": {
-    "DISPLAY": "${localEnv:DISPLAY}"
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "CYCLONEDDS_URI": "/home/ubuntu/colcon_ws/src/grasping/cyclonedds.xml",
+    "ROS_DOMAIN_ID": "76"
   },
   "runArgs": [
     "--hostname",
@@ -19,6 +21,8 @@
     "50003:50003",
     "-p",
     "50004:50004",
+    "-p",
+    "26400-26420:26400-26420/udp",
     "--gpus",
     "all"
   ],
