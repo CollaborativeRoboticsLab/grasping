@@ -14,6 +14,7 @@ def generate_launch_description():
 	ur_type = LaunchConfiguration('ur_type')
 	robot_ip = LaunchConfiguration('robot_ip')
 	reverse_ip = LaunchConfiguration('reverse_ip')
+	use_sim = LaunchConfiguration('use_sim')
 	kinematics_params_file = LaunchConfiguration('kinematics_params_file')
 	launch_rviz = LaunchConfiguration('launch_rviz')
 	initial_joint_controller = LaunchConfiguration('initial_joint_controller')
@@ -28,7 +29,8 @@ def generate_launch_description():
 			'robot_ip': robot_ip,
 			'reverse_ip': reverse_ip,
 			'description_package': 'grasping_description',
-			'description_file': 'ur10-with-camera-mount.urdf.xacro',
+			'description_file': 'ur10-two-finger.urdf.xacro',
+			'sim_gazebo': use_sim,
 			'launch_rviz': 'false',
 			'kinematics_params_file': kinematics_params_file,
 			'initial_joint_controller': initial_joint_controller,
@@ -48,7 +50,8 @@ def generate_launch_description():
 		launch_arguments={
 			'ur_type': ur_type,
 			'description_package': 'grasping_description',
-			'description_file': 'ur10-with-camera-mount.urdf.xacro',
+			'description_file': 'ur10-two-finger.urdf.xacro',
+			'sim_gazebo': use_sim,
 			'launch_rviz': launch_rviz,
 		}.items(),
 	)
@@ -62,6 +65,7 @@ def generate_launch_description():
 		DeclareLaunchArgument('ur_type', default_value='ur10'),
 		DeclareLaunchArgument('robot_ip', default_value='192.168.10.156'),
 		DeclareLaunchArgument('reverse_ip', default_value='192.168.10.130'),
+		DeclareLaunchArgument('use_sim', default_value='false'),
 		DeclareLaunchArgument(
 			'kinematics_params_file',
 			default_value=str(

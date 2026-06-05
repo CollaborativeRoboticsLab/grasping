@@ -3,6 +3,7 @@
 	<xacro:arg name="name" default="ur"/>
 	<xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
 	<xacro:include filename="$(find grasping_description)/xacro/camera-mount.urdf.xacro"/>
+	<xacro:include filename="$(find gripper_description)/xacro/two-finger-gripper.urdf.xacro"/>
 	<xacro:include filename="$(find realsense2_description)/urdf/_d435.urdf.xacro"/>
 
 	<xacro:arg name="ur_type" default="ur5x"/>
@@ -116,7 +117,13 @@
 		parent="$(arg tf_prefix)tool0"
 		prefix="$(arg tf_prefix)"
 		xyz="0 0 0.008"
-		rpy="0 0 0.008" />
+		rpy="0 0 0" />
+
+	<xacro:two_finger_gripper
+		parent="$(arg tf_prefix)camera_mount_link"
+		prefix="$(arg tf_prefix)"
+		xyz="0 0 0"
+		rpy="0 0 1.57" />
 
 	<xacro:sensor_d435 parent="$(arg tf_prefix)camera_mount_link" name="$(arg tf_prefix)camera">
 		<origin xyz="-0.085 0 0.035" rpy="0 -1.57 0" />

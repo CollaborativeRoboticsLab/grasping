@@ -174,6 +174,7 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
     ros-${ROS_DISTRO}-ros-base \
+    ros-${ROS_DISTRO}-rqt-tf-tree \
     ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
     ros-dev-tools  \
     && apt-get clean \
