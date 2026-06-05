@@ -121,7 +121,7 @@ Use the following command to start the gripper controller
 
 ```bash
 source install/setup.bash
-ros2 launch gripper_ros dynamixel.launch.py
+ros2 launch gripper_ros gripper_soft_two_finger.launch.py
 ```
 
 ### Start the gripping process

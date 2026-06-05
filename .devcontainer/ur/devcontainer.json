@@ -11,6 +11,8 @@
     "--hostname",
     "kalana-laptop",
     "--privileged",
+    "--group-add",
+    "dialout",
     "--network=bridge",
     "--mac-address=02:42:de:ad:be:ef",
     "-p",
