@@ -78,6 +78,12 @@ Clone this repo and open using VSCode. Generally VScode should auto detect, if n
 
 Following are quick commands to match our specific setup. Read relevant sections under `System architecture` to find other supported commands.
 
+## Connecting with extenral docker containers/devcontainers
+
+To connect with external devices running other docker containers, please follow following guidelines
+
+- [External container using network=host](./docs/external/container.md)
+
 ## Quick Commands
 
 Following commands are for quick launching our system. Use relevant commands if components differ.
