@@ -219,12 +219,19 @@ RUN apt-get update && \
     ros-${ROS_DISTRO}-joint-state-publisher \
     ros-${ROS_DISTRO}-joint-state-publisher-gui \
     ros-${ROS_DISTRO}-vision-opencv \
+    ros-${ROS_DISTRO}-navigation2 \
+    ros-${ROS_DISTRO}-nav2-bringup \
+    ros-${ROS_DISTRO}-slam-toolbox \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/ubuntu/colcon_ws/src/
 
 RUN git clone https://github.com/CollaborativeRoboticsLab/tmr_ros2.git -b humble
+git clone https://github.com/CollaborativeRoboticsLab/omron_base.git -b humble
+RUN git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git -b humble
+
+
 
 ############################################################################
 ####        Install grippers packages
