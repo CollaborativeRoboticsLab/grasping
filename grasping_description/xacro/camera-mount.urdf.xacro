@@ -7,7 +7,7 @@
 
 		<link name="${prefix}camera_mount_link">
 			<visual>
-				<origin xyz="0 0 0" rpy="-1.57 3.14 1.57" />
+				<origin xyz="0 0 0.008" rpy="1.57 0 -1.57" />
 				<geometry>
 					<mesh filename="package://grasping_description/meshes/camera-mount.stl" scale="${scale}" />
 				</geometry>
@@ -15,9 +15,9 @@
 			</visual>
 
 			<collision>
-				<origin xyz="0 0 0" rpy="-1.57 3.14 1.57" />
+				<origin xyz="0 0 0.008" rpy="1.57 0 -1.57" />
 				<geometry>
-					<mesh filename="package://grasping_description/meshes/camera-mount.stl" scale="${scale}" />
+					<mesh filename="package://grasping_description/meshes/camera-mount.stl" scale="0.95 0.95 0.95" />
 				</geometry>
 			</collision>
 		</link>
