@@ -192,7 +192,7 @@ class GraspingNode(Node):
             return False
 
         goal = CloseGripper.Goal()
-        goal.close = True
+        goal.close_ratio = 1.0
         goal.use_torque_mode = bool(use_torque_mode)
         goal.torque = float(torque)
 
