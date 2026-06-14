@@ -35,7 +35,7 @@ def generate_launch_description():
 			'robot_ip': robot_ip,
 			'reverse_ip': reverse_ip,
 			'description_package': 'grasping_description',
-			'description_file': 'ur10-two-finger.urdf.xacro',
+			'description_file': 'ur10-soft-two-fingers.urdf.xacro',
 			'sim_gazebo': use_sim,
 			'launch_rviz': 'false',
 			'kinematics_params_file': kinematics_params_file,
@@ -56,7 +56,7 @@ def generate_launch_description():
 		launch_arguments={
 			'ur_type': ur_type,
 			'description_package': 'grasping_description',
-			'description_file': 'ur10-two-finger.urdf.xacro',
+			'description_file': 'ur10-soft-two-fingers.urdf.xacro',
 			'sim_gazebo': use_sim,
 			'launch_rviz': 'false',
 		}.items(),

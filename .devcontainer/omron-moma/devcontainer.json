@@ -1,5 +1,5 @@
 {
-  "name": "Omron Mobile ManipulatorGrasping Humble base",
+  "name": "Omron Mobile Manipulator Grasping Humble base",
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
   "containerEnv": {
