@@ -10,7 +10,7 @@ Once you have a new gripper ready, you can add it to the manipulator by followin
 
 Combine the description files of the components you need to use into a single xacro file. For example, if you want to add a new gripper to the UR10 manipulator, you can create a new xacro file that includes both the UR10 and the new gripper descriptions.
 
-We recommend creating a new xacro file in the `grasping_description/xacro` folder for each new combination of manipulator and gripper, for example [`ur10_with_gripper.urdf.xacro`](../../grasping_description/xacro/ur10-soft-two-fingers.urdf.xacro). This way you can keep the original component descriptions unchanged and easily switch between different combinations.
+We recommend creating a new xacro file in the `grasping_description/xacro` folder for each new combination of manipulator and gripper, for example [`ur10_with_gripper.urdf.xacro`](../../grasping_description/xacro/ur10_soft_two_fingers/ur10-soft-two-fingers.urdf.xacro). This way you can keep the original component descriptions unchanged and easily switch between different combinations.
 
 In this project we follow this and use the following naming convention for the combined descriptions:
 
