@@ -41,12 +41,13 @@ In this grasping framework we utilize anygrasp for grasp pose detection. The any
 - [Anygrasp Detection Node](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/detection.md)
 - [Anygrasp Tracking Node](https://github.com/CollaborativeRoboticsLab/anygrasp_ros/blob/main/docs/tracking.md)
 
-### Grasping Pipeline
 
-The grasping pipeline is the main component that orchestrates the grasping process: it requests a grasp pose from AnyGrasp, calls the arm-control action, closes the gripper, and optionally runs a post-grasp move. 
+### Gripper Controller
 
-- [Control stack overview](./docs/control/control_stack_overview.md)
-- [Grasping pipeline](./docs/control/grasping_pipeline.md)
+In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
+
+- [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
+- [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
 
 ### Arm Controller
 
@@ -55,6 +56,8 @@ In this grasping framework, we utilize the ur10 manipulator. Instructions relate
 - [UR10 and Devcontainer connection](./docs/manipulator/connection.md)
 - [UR10 calibration](./docs/manipulator/calibration.md)
 - [UR10 startup](./docs/manipulator/universal.md)
+- [UR10 TF frames for gripper compatibility](./docs/manipulator/tf_frames.md)
+- [UR10 attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 
 ### Arm Control and Workspace Creation
 
@@ -63,12 +66,12 @@ This component transforms grasp poses, applies workspace obstacles to MoveIt, vi
 - [Workspace Creation](./docs/workspace/creation.md)
 - [Arm Control](./docs/control/arm_control.md)
 
-### Gripper Controller
+### Grasping Pipeline
 
-In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
+The grasping pipeline is the main component that orchestrates the grasping process: it requests a grasp pose from AnyGrasp, calls the arm-control action, closes the gripper, and optionally runs a post-grasp move. 
 
-- [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
-- [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
+- [Control stack overview](./docs/control/control_stack_overview.md)
+- [Grasping pipeline](./docs/control/grasping_pipeline.md)
 
 ## Building container
 
@@ -108,8 +111,7 @@ ros2 launch anygrasp_ros detection.launch.py
 
 ### Start the UR10 Manipulator and gripper with MoveIt
 
-
-#### For `UR10 with soft two-finger gripper`, use the following command
+#### For `UR10 with soft two-finger gripper`
 
 ```bash
 source install/setup.bash

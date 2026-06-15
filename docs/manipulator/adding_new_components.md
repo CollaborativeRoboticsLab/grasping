@@ -98,7 +98,7 @@ To create a new launch file, you can copy an existing one and modify it to use t
 
 Once you have updated the launch files, you can test the new setup by launching the corresponding launch file and verifying that everything is working as expected.
 
-## Recommended control split
+### Recommended control split
 
 For this repository, the recommended split is:
 

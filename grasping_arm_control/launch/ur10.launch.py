@@ -8,7 +8,7 @@ from pathlib import Path
 
 def generate_launch_description():
 	ur_robot_driver_share = get_package_share_directory('ur_robot_driver')
-	ur_moveit_config_share = get_package_share_directory('ur10_moveit_config')
+	ur_moveit_config_share = get_package_share_directory('ur_moveit_config')
 	grasping_arm_control_share = get_package_share_directory('grasping_arm_control')
 
 	ur_type = LaunchConfiguration('ur_type')
@@ -51,7 +51,7 @@ def generate_launch_description():
 			'ur_type': ur_type,
 			'description_package': 'ur_description',
 			'description_file': 'ur.urdf.xacro',
-			'moveit_config_package': 'ur10_moveit_config',
+			'moveit_config_package': 'ur_moveit_config',
 			'use_sim_time': use_sim,
 			'launch_rviz': launch_rviz,
 		}.items(),
