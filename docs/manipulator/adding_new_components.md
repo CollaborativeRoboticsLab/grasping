@@ -117,3 +117,6 @@ colcon build
 source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
+
+### To test the gripper open and close
+

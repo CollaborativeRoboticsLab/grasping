@@ -115,7 +115,7 @@ ros2 launch anygrasp_ros detection.launch.py
 
 ```bash
 source install/setup.bash
-ros2 launch ur10_soft_two_fingers_moveit_config hardware.launch.py
+ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
 
 ### Start the gripping process
