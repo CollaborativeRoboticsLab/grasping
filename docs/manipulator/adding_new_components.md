@@ -66,22 +66,54 @@ Currently we have,
 |-------------|-------------------------------|------------------------|
 | `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config` | UR10 manipulator and the softtwo-finger gripper |
 
+## Testing the new setup
+
+Use the demonstration launch files to test the new setup. You can create a new launch file for the new combination, or you can update an existing one if it already exists.
+
+```bash
+colcon build
+source install/setup.bash
+ros2 launch ur10_soft_two_fingers_moveit_config demo.launch.py
+```
+
+If the MoveIt Setup Assistant generated only fake-hardware oriented file, you might have to update `ur.ros2_control.xacro`, `ur.urdf.xacro` and other files to match.
+
+For fake-hardware demo support, prefer a single `ros2_control` owner in the generated MoveIt package. For the UR10 + soft-two-finger setup, the clean pattern is to disable the embedded UR `ros2_control` tag in the demo wrapper and let the generated `ur.ros2_control.xacro` provide one local fake `GenericSystem` for the combined arm+gripper model.
+
 ## Updating the launch files
 
-Finally, you need to update the launch files to use the new MoveIt configuration and the combined description.
+Finally, you need to update the launch files to use the new MoveIt configuration, combined description and hardware.
 
-You can create a new launch file for the new combination, or you can update an existing one if it already exists.
-
-Recommended approach is to create a new launch file for the new combination. This way you can easily switch between different setups by launching the corresponding launch file. Additionally, you can use the same naming convention for the launch files as well:
-
-```text
-<manipulator>_<gripper>_moveit.launch.py
-```
+Recommended appraoch is to create the `hardware_with_moveit.launch.py` inside the newly created moveit config package as this allows you to keep this unique to correct hardware combination.
 
 Currently we have,
 
 | Description | Launch File | Manipulator and Gripper |
 |-------------|-------------|------------------------|
-| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit.launch.py` | UR10 manipulator and the softtwo-finger gripper |
+| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | UR10 manipulator and the softtwo-finger gripper |
 
 To create a new launch file, you can copy an existing one and modify it to use the new MoveIt configuration and the combined description.
+
+## Hardware Testing
+
+Once you have updated the launch files, you can test the new setup by launching the corresponding launch file and verifying that everything is working as expected.
+
+## Recommended control split
+
+For this repository, the recommended split is:
+
+- MoveIt owns arm planning and, when desired, arm trajectory execution.
+- The gripper remains in the robot description and SRDF so collision checking and reachability reflect the real combined tool.
+- Gripper actuation stays external through dedicated actions such as `open_gripper` and `close_gripper` unless you specifically need synchronized arm+gripper trajectories.
+
+This keeps task logic simple: external code can plan with MoveIt, execute arm motion, and call gripper actions at grasp-specific phases without forcing the gripper behavior into MoveIt's controller model.
+
+Currently we support following systems
+
+### UR10 with soft two finger gripper
+
+```bash
+colcon build
+source install/setup.bash
+ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
+```

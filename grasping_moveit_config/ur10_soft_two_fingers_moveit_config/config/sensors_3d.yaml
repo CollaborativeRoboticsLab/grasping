@@ -1,13 +1,5 @@
 sensors:
-  - default_sensor
-default_sensor:
-  far_clipping_plane_distance: ""
-  filtered_cloud_topic: ""
-  image_topic: ""
-  max_update_rate: ""
-  near_clipping_plane_distance: ""
-  padding_offset: ""
-  padding_scale: ""
-  queue_size: ""
-  sensor_plugin: occupancy_map_monitor/DepthImageOctomapUpdater
-  shadow_threshold: ""
+  - disabled_sensor
+
+disabled_sensor:
+  sensor_plugin: "~disabled"

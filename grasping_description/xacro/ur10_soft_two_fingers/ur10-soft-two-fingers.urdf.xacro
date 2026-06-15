@@ -2,7 +2,7 @@
 <robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur">
 	<xacro:arg name="name" default="ur"/>
 	<xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
-	<xacro:include filename="$(find grasping_description)/xacro/camera-mount.urdf.xacro"/>
+	<xacro:include filename="$(find grasping_description)/xacro/camera/camera-mount.urdf.xacro"/>
 	<xacro:include filename="$(find gripper_description)/xacro/two-finger-gripper.urdf.xacro"/>
 	<xacro:include filename="$(find realsense2_description)/urdf/_d435.urdf.xacro"/>
 
@@ -12,6 +12,7 @@
 	<xacro:arg name="kinematics_params" default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
 	<xacro:arg name="physical_params" default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
 	<xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+	<xacro:arg name="generate_ros2_control_tag" default="true"/>
 	<xacro:arg name="transmission_hw_interface" default=""/>
 	<xacro:arg name="safety_limits" default="false"/>
 	<xacro:arg name="safety_pos_margin" default="0.15"/>
@@ -40,9 +41,7 @@
 	<xacro:arg name="sim_gazebo" default="false" />
 	<xacro:arg name="sim_ignition" default="false" />
 	<xacro:arg name="simulation_controllers" default="" />
-	<xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/>
 
-	<xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
 	<xacro:property name="is_sim_gazebo" value="$(arg sim_gazebo)"/>
 	<xacro:property name="is_sim_ignition" value="$(arg sim_ignition)"/>
 
@@ -82,6 +81,7 @@
 		kinematics_parameters_file="$(arg kinematics_params)"
 		physical_parameters_file="$(arg physical_params)"
 		visual_parameters_file="$(arg visual_params)"
+		generate_ros2_control_tag="$(arg generate_ros2_control_tag)"
 		transmission_hw_interface="$(arg transmission_hw_interface)"
 		safety_limits="$(arg safety_limits)"
 		safety_pos_margin="$(arg safety_pos_margin)"
@@ -91,7 +91,6 @@
 		sim_gazebo="$(arg sim_gazebo)"
 		sim_ignition="$(arg sim_ignition)"
 		headless_mode="$(arg headless_mode)"
-		initial_positions="${xacro.load_yaml(initial_positions_file)}"
 		use_tool_communication="$(arg use_tool_communication)"
 		tool_voltage="$(arg tool_voltage)"
 		tool_parity="$(arg tool_parity)"

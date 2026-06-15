@@ -106,22 +106,14 @@ source install/setup.bash
 ros2 launch anygrasp_ros detection.launch.py
 ```
 
-### Start the UR10 Manipulator with MoveIt
+### Start the UR10 Manipulator and gripper with MoveIt
 
-Use the following command to start the UR robot control
 
-```bash
-source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py
-```
-
-### Start the gripper
-
-Use the following command to start the gripper controller
+#### For `UR10 with soft two-finger gripper`, use the following command
 
 ```bash
 source install/setup.bash
-ros2 launch gripper_ros gripper_soft_two_fingers.launch.py
+ros2 launch ur10_soft_two_fingers_moveit_config hardware.launch.py
 ```
 
 ### Start the gripping process

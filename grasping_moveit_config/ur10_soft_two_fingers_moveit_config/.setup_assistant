@@ -2,6 +2,7 @@ moveit_setup_assistant_config:
   urdf:
     package: grasping_description
     relative_path: xacro/ur10-soft-two-fingers.urdf.xacro
+    xacro_args: generate_ros2_control_tag:=false
   srdf:
     relative_path: config/ur.srdf
   package_settings:
