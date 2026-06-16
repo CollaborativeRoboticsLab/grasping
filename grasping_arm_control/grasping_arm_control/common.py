@@ -73,6 +73,23 @@ def resolve_config_path(package_name: str, configured_path: str, default_name: s
     return share_dir / 'config' / default_name
 
 
+def find_colcon_workspace_root(start_path: Path) -> Path | None:
+    """
+    @brief Find the nearest colcon workspace root above a file or directory.
+
+    @param start_path File or directory path inside a workspace.
+    @return Workspace root when found, otherwise None.
+    """
+    current = start_path.resolve()
+    search_roots = (current,) if current.is_dir() else current.parents
+    for candidate in search_roots:
+        has_src = (candidate / 'src').is_dir()
+        has_colcon_artifacts = any((candidate / name).exists() for name in ('build', 'install', 'log'))
+        if has_src and has_colcon_artifacts:
+            return candidate
+    return None
+
+
 def load_yaml_dict(path: Path, default_value: Dict[str, Any]) -> Dict[str, Any]:
     """
     @brief Load a YAML mapping from disk or return a default copy when absent.

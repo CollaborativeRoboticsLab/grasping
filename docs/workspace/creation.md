@@ -1,6 +1,6 @@
 # Workspace Creation
 
-This document covers the interactive calibration flow that writes `grasping_arm_control/config/workspace.yaml`.
+This document covers the interactive calibration flow that starts from `grasping_arm_control/config/workspace_empty.yaml` and saves named workspace YAML files on demand.
 
 For how the runtime system consumes that file, see [arm_control.md](./arm_control.md).
 
@@ -40,7 +40,7 @@ Shape requirements are defined in `grasping_arm_control/config/shape_definitions
 
 ## Interactive Flow
 
-When the node starts, it loads the current workspace file and then enters a CLI session.
+When the node starts, it loads `workspace_empty.yaml` by default, unless `workspace_config_path` explicitly points somewhere else, and then enters a CLI session.
 
 The top-level menu lets the operator:
 
@@ -48,10 +48,11 @@ The top-level menu lets the operator:
 - review existing objects
 - add a new object
 - update an existing object
+- save the in-memory calibration to a named YAML file with the `s` option
 - calibrate the workspace area with the `w` option
-- quit and persist the updated YAML
+- quit without saving
 
-The node writes the normalized workspace configuration back to disk after each saved change and again when the session exits.
+The node keeps calibration changes in memory until you explicitly choose `save`.
 
 ## Workspace YAML Structure
 
@@ -189,15 +190,17 @@ The saved geometry becomes a cylinder aligned with the base frame.
 
 If you override `workspace_config_path`, point `arm_control_node` at the same file so both nodes use the same calibrated scene.
 
+If you do not override `workspace_config_path`, `workspace_calibration` starts from `workspace_empty.yaml`. When you choose `save`, it asks for a file name and writes that YAML into the colcon workspace root.
+
 
 
 ## Usage Commands
 
-- Start the ur10 arm:
+- Start the ur10 arm with gripper. As an example,
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py
+ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
 
 - Start workspace calibration:
@@ -227,4 +230,4 @@ ros2 run grasping_arm_control arm_control_node --ros-args -p workspace_config_pa
 2. Press `w` to calibrate the workspace area if needed.
 3. Capture the four workspace corners in order.
 4. Add or update collision objects as needed.
-5. Quit to persist the updated `workspace_area` and `objects`.
+5. Press `s` and enter a file name to save the updated `workspace_area` and `objects` into the workspace root.

@@ -8,9 +8,7 @@ moveit_simple_controller_manager:
     - soft_two_fingers_gripper_controller
 
   ur10_arm_controller:
-    action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
-    default: true
     joints:
       - shoulder_pan_joint
       - shoulder_lift_joint
@@ -18,6 +16,8 @@ moveit_simple_controller_manager:
       - wrist_1_joint
       - wrist_2_joint
       - wrist_3_joint
+    action_ns: follow_joint_trajectory
+    default: true
   soft_two_fingers_gripper_controller:
     type: GripperCommand
     joints:

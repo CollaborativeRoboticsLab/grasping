@@ -1,14 +1,14 @@
 moveit_setup_assistant_config:
   urdf:
     package: grasping_description
-    relative_path: xacro/ur10-soft-two-fingers.urdf.xacro
+    relative_path: xacro/ur10_soft_two_fingers/ur10-soft-two-fingers.urdf.xacro
     xacro_args: generate_ros2_control_tag:=false
   srdf:
     relative_path: config/ur.srdf
   package_settings:
     author_name: Kalana Ratnayake
     author_email: kalanaratnayake95@gmail.com
-    generated_timestamp: 1781445318
+    generated_timestamp: 1781580750
   control_xacro:
     command:
       - position

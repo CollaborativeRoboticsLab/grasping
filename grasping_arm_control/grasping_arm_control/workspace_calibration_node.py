@@ -1,4 +1,5 @@
 from copy import deepcopy
+from pathlib import Path
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -7,7 +8,11 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from grasping_arm_control.common import load_yaml_dict, resolve_config_path
+from grasping_arm_control.common import (
+	find_colcon_workspace_root,
+	load_yaml_dict,
+	resolve_config_path,
+)
 from grasping_arm_control.workspace_utils import (
 	build_geometry,
 	build_workspace_area,
@@ -48,13 +53,11 @@ class WorkspaceCalibrationNode(Node):
 		self._workspace_config_path = resolve_config_path(
 			'grasping_arm_control',
 			str(self.get_parameter('workspace_config_path').value),
-			'workspace.yaml',
+			'workspace_empty.yaml',
 		)
-		self._workspace_write_path = resolve_config_path(
-			'grasping_arm_control',
-			str(self.get_parameter('workspace_write_path').value),
-			'workspace.yaml',
-		)
+		configured_write_path = str(self.get_parameter('workspace_write_path').value)
+		self._workspace_write_path = Path(configured_write_path).expanduser().resolve() if configured_write_path else None
+		self._workspace_root = find_colcon_workspace_root(Path(__file__))
 		self._shape_definitions_path = resolve_config_path(
 			'grasping_arm_control',
 			str(self.get_parameter('shape_definitions_path').value),
@@ -79,8 +82,13 @@ class WorkspaceCalibrationNode(Node):
 		self.get_logger().info(
 			f'Listening for joint states on {joint_state_topic} and TF {self._base_frame} -> {self._tool_frame}'
 		)
-		self.get_logger().info(f'Workspace config: {self._workspace_config_path}')
-		self.get_logger().info(f'Workspace write path: {self._workspace_write_path}')
+		self.get_logger().info(f'Workspace template: {self._workspace_config_path}')
+		if self._workspace_write_path is not None:
+			self.get_logger().info(f'Workspace save path override: {self._workspace_write_path}')
+		elif self._workspace_root is not None:
+			self.get_logger().info(f'Workspace save root: {self._workspace_root}')
+		else:
+			self.get_logger().warn('Colcon workspace root not detected; saves will fall back to the config directory.')
 		self.get_logger().info(f'Shape definitions: {self._shape_definitions_path}')
 
 	def _joint_state_callback(self, msg: JointState) -> None:
@@ -129,6 +137,7 @@ class WorkspaceCalibrationNode(Node):
 		shapes = shape_definitions.get('shapes', {})
 		if not shapes:
 			raise RuntimeError('No shapes defined in shape_definitions.yaml')
+		is_dirty = False
 
 		print('')
 		print('Workspace calibration session started.')
@@ -138,6 +147,7 @@ class WorkspaceCalibrationNode(Node):
 
 		while rclpy.ok():
 			print('')
+			print(f'Unsaved changes: {"yes" if is_dirty else "no"}')
 			workspace_area = workspace_config.get('workspace_area')
 			if workspace_area:
 				area_size = workspace_area.get('geometry', {}).get('dimensions', {}).get('side_length', 0.0)
@@ -155,26 +165,37 @@ class WorkspaceCalibrationNode(Node):
 
 			add_index = len(objects) + 1
 			print(f'  {add_index}. Add new object')
+			print('  s. Save workspace file')
 			print('  w. Calibrate workspace area')
 			print('  q. Quit')
 
 			selection = input('Select an object to update or choose add new: ').strip().lower()
 			if selection in {'q', 'quit', 'exit'}:
-				workspace_config = self._write_workspace_config(workspace_config)
+				if is_dirty:
+					confirm = input('Unsaved changes will be lost. Quit anyway? [y/N]: ').strip().lower()
+					if confirm not in {'y', 'yes'}:
+						continue
 				print('Calibration session ended.')
 				return
+
+			if selection in {'s', 'save'}:
+				saved_config = self._save_workspace_config(workspace_config)
+				if saved_config is not None:
+					workspace_config = saved_config
+					is_dirty = False
+				continue
 
 			if selection in {'w', 'workspace'}:
 				workspace_area_entry = self._capture_workspace_area()
 				if workspace_area_entry is None:
 					continue
 				workspace_config['workspace_area'] = workspace_area_entry
-				workspace_config = self._write_workspace_config(workspace_config)
-				print('Workspace area saved.')
+				is_dirty = True
+				print('Workspace area updated in memory. Use save to persist it.')
 				continue
 
 			if not selection.isdigit():
-				print('Enter a number, w, or q to quit.')
+				print('Enter a number, s, w, or q to quit.')
 				continue
 
 			selected_index = int(selection)
@@ -183,8 +204,8 @@ class WorkspaceCalibrationNode(Node):
 				if object_entry is None:
 					continue
 				objects.append(object_entry)
-				workspace_config = self._write_workspace_config(workspace_config)
-				print(f'Saved object {object_entry["name"]}.')
+				is_dirty = True
+				print(f'Updated object {object_entry["name"]} in memory. Use save to persist it.')
 				continue
 
 			if 1 <= selected_index <= len(objects):
@@ -192,8 +213,8 @@ class WorkspaceCalibrationNode(Node):
 				if updated_entry is None:
 					continue
 				objects[selected_index - 1] = updated_entry
-				workspace_config = self._write_workspace_config(workspace_config)
-				print(f'Updated object {updated_entry["name"]}.')
+				is_dirty = True
+				print(f'Updated object {updated_entry["name"]} in memory. Use save to persist it.')
 				continue
 
 			print('Selection out of range.')
@@ -507,21 +528,59 @@ class WorkspaceCalibrationNode(Node):
 				'effort': [float(value) for value in self._latest_joint_state.effort],
 			}
 
-	def _write_workspace_config(self, workspace_config: Dict[str, Any]) -> Dict[str, Any]:
+	def _save_workspace_config(self, workspace_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 		"""
-		@brief Persist the workspace configuration with current node metadata.
+		@brief Persist the workspace configuration after prompting for a destination filename.
 
 		@param workspace_config Workspace configuration to write.
-		@return Normalized workspace configuration that was persisted.
+		@return Normalized workspace configuration that was persisted, or None when cancelled.
 		"""
-		# Persist to the configured write path so users can separate read vs write locations
-		return write_workspace_config(
-			self._workspace_write_path,
+		save_path = self._resolve_save_path()
+		if save_path is None:
+			return None
+
+		saved_config = write_workspace_config(
+			save_path,
 			workspace_config,
 			self._base_frame,
 			self._tool_frame,
 			self._ground_plane_z,
 		)
+		print(f'Saved workspace file to {save_path}')
+		return saved_config
+
+	def _resolve_save_path(self) -> Optional[Path]:
+		"""
+		@brief Resolve the destination path for an explicit save request.
+
+		@return Output path, or None when the save is cancelled.
+		"""
+		if self._workspace_write_path is not None:
+			return self._workspace_write_path
+
+		save_root = self._workspace_root or self._workspace_config_path.parent
+		while rclpy.ok():
+			response = input(f'Save file name in {save_root} (without path): ').strip()
+			if response.lower() in {'cancel', 'c', 'q'}:
+				print('Save cancelled.')
+				return None
+			if not response:
+				print('File name is required, or type cancel.')
+				continue
+
+			file_name = Path(response)
+			if file_name.name != response:
+				print('Enter a file name only; the file will be saved in the workspace root.')
+				continue
+			if file_name.suffix not in {'.yaml', '.yml'}:
+				file_name = file_name.with_suffix('.yaml')
+
+			save_path = save_root / file_name
+			if save_path.exists():
+				overwrite = input(f'{save_path.name} exists. Overwrite? [y/N]: ').strip().lower()
+				if overwrite not in {'y', 'yes'}:
+					continue
+			return save_path
 
 
 def main(args: Optional[List[str]] = None) -> None:

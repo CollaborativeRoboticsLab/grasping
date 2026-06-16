@@ -2,6 +2,7 @@
 <robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur">
 	<xacro:arg name="name" default="ur"/>
 	<xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+	<xacro:include filename="$(find grasping_description)/xacro/robot-base/ur10-base.urdf.xacro"/>
 	<xacro:include filename="$(find grasping_description)/xacro/camera/camera-mount.urdf.xacro"/>
 	<xacro:include filename="$(find gripper_description)/xacro/two-finger-gripper.urdf.xacro"/>
 	<xacro:include filename="$(find realsense2_description)/urdf/_d435.urdf.xacro"/>
@@ -73,10 +74,16 @@
 		</joint>
 	</xacro:if>
 
+	<xacro:ur10_base
+		parent="world"
+		prefix="$(arg tf_prefix)"
+		xyz="0 0 0.865"
+		rpy="0 0 0" />
+
 	<xacro:ur_robot
 		name="$(arg name)"
 		tf_prefix="$(arg tf_prefix)"
-		parent="world"
+		parent="$(arg tf_prefix)ur10_base_link"
 		joint_limits_parameters_file="$(arg joint_limit_params)"
 		kinematics_parameters_file="$(arg kinematics_params)"
 		physical_parameters_file="$(arg physical_params)"
