@@ -492,13 +492,12 @@ def generate_launch_description():
         }.items(),
     )
 
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2_moveit",
-        output="log",
+    rviz_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(Path(moveit_config_share) / "launch" / "moveit_rviz.launch.py")
+        ),
         condition=IfCondition(launch_rviz),
-        arguments=["-d", rviz_config_file],
+        launch_arguments={"rviz_config": rviz_config_file}.items(),
     )
 
     return LaunchDescription(
@@ -576,6 +575,6 @@ def generate_launch_description():
                 )
             ),
             GroupAction(scoped=True, actions=[gripper_launch]),
-            rviz_node,
+            rviz_launch,
         ]
     )
