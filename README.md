@@ -58,6 +58,7 @@ In this grasping framework, we utilize the ur10 manipulator. Instructions relate
 - [UR10 startup](./docs/manipulator/universal.md)
 - [UR10 TF frames for gripper compatibility](./docs/manipulator/tf_frames.md)
 - [UR10 attaching new gripper and components](./docs/manipulator/adding_new_components.md)
+- [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
 
 ### Arm Control and Workspace Creation
 

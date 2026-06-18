@@ -18,14 +18,14 @@ Use the following command to start the UR robot control
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py
+ros2 launch grasping_control ur10.launch.py
 ```
 
 This wrapper launch file includes the default `ur_robot_driver` and `ur_moveit_config` launches with these defaults:
 
 - `ur_type:=ur10`
 - `robot_ip:=10.0.0.89`
-- `kinematics_params_file:=/home/ubuntu/colcon_ws/src/ur_grasping/grasping_arm_control/config/ur_kinematics.yaml`
+- `kinematics_params_file:=/home/ubuntu/colcon_ws/src/ur_grasping/grasping_control/config/ur_kinematics.yaml`
 - `launch_rviz:=true`
 - `initial_joint_controller:=scaled_joint_trajectory_controller`
 
@@ -33,7 +33,7 @@ Override any of them on the command line when needed, for example
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
+ros2 launch grasping_control ur10.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
 ```
 
 if the execution fails, try the following command

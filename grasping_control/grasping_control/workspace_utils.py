@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from moveit_msgs.msg import CollisionObject
 from shape_msgs.msg import SolidPrimitive
 
-from grasping_arm_control.common import Quaternion, dict_to_pose, normalize_quaternion, write_yaml_dict
+from grasping_control.common import Quaternion, dict_to_pose, normalize_quaternion, write_yaml_dict
 
 
 def iso_timestamp() -> str:
@@ -55,12 +55,14 @@ def default_shape_definitions() -> Dict[str, Any]:
 		'version': 1,
 		'shapes': {
 			'top_surface_rectangle': {
+				'shape_key': 'top_surface_rectangle',
 				'display_name': 'Top-surface rectangle',
 				'geometry_type': 'box',
 				'description': 'Capture the four top-face corners in order around the object.',
 				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
 			},
 			'side_face_rectangle': {
+				'shape_key': 'side_face_rectangle',
 				'display_name': 'Side-face rectangle',
 				'geometry_type': 'box',
 				'description': 'Capture the four side-face corners in order around the visible surface, then enter the obstacle depth from that face.',
@@ -73,6 +75,7 @@ def default_shape_definitions() -> Dict[str, Any]:
 				},
 			},
 			'bottom_face_rectangle': {
+				'shape_key': 'bottom_face_rectangle',
 				'display_name': 'Bottom-face rectangle',
 				'geometry_type': 'box',
 				'description': 'Capture the four bottom-face corners in order around the hanging obstacle, then enter the obstacle height above that face.',
@@ -85,6 +88,7 @@ def default_shape_definitions() -> Dict[str, Any]:
 				},
 			},
 			'cylinder': {
+				'shape_key': 'cylinder',
 				'display_name': 'Cylinder',
 				'geometry_type': 'cylinder',
 				'description': 'Capture the top-face center, then four rim points around the cylinder.',
@@ -109,16 +113,83 @@ def prepare_workspace_config(
 	@param ground_plane_z Ground height in the base frame.
 	@return A copied and normalized workspace configuration dictionary.
 	"""
-	prepared = deepcopy(workspace_config)
-	prepared.setdefault('version', 1)
-	prepared.setdefault('workspace_area', None)
-	prepared.setdefault('objects', [])
-	if not isinstance(prepared.get('workspace_area'), dict):
-		prepared['workspace_area'] = None
-	prepared['updated_at'] = iso_timestamp()
-	prepared['base_frame'] = base_frame
-	prepared['tool_frame'] = tool_frame
-	prepared['ground_plane_z'] = ground_plane_z
+	prepared = {
+		'version': int(workspace_config.get('version', 1)),
+		'updated_at': iso_timestamp(),
+		'base_frame': base_frame,
+		'tool_frame': tool_frame,
+		'ground_plane_z': ground_plane_z,
+		'workspace_area': None,
+		'objects': [],
+	}
+
+	workspace_area = workspace_config.get('workspace_area')
+	if isinstance(workspace_area, dict):
+		prepared['workspace_area'] = _prepare_workspace_area(workspace_area)
+
+	for workspace_object in workspace_config.get('objects', []):
+		if isinstance(workspace_object, dict):
+			prepared['objects'].append(_prepare_workspace_object(workspace_object))
+
+	return prepared
+
+
+def _prepare_workspace_area(workspace_area: Dict[str, Any]) -> Dict[str, Any]:
+	"""!
+	@brief Reduce a workspace-area entry to the persisted fields used after calibration.
+
+	@param workspace_area Workspace area entry from the in-memory calibration model.
+	@return Minimal persisted workspace area mapping.
+	"""
+	return {
+		'geometry': _prepare_geometry(workspace_area.get('geometry', {})),
+	}
+
+
+def _prepare_workspace_object(workspace_object: Dict[str, Any]) -> Dict[str, Any]:
+	"""!
+	@brief Reduce a workspace object entry to the persisted fields used after calibration.
+
+	@param workspace_object Object entry from the in-memory calibration model.
+	@return Minimal persisted workspace object mapping.
+	"""
+	prepared = {
+		'name': str(workspace_object.get('name', 'unnamed')),
+		'geometry': _prepare_geometry(workspace_object.get('geometry', {})),
+	}
+
+	shape = workspace_object.get('shape')
+	if shape is not None:
+		prepared['shape'] = str(shape)
+
+	return prepared
+
+
+def _prepare_geometry(geometry: Dict[str, Any]) -> Dict[str, Any]:
+	"""!
+	@brief Keep only the geometry fields consumed by runtime code.
+
+	@param geometry Geometry mapping from the in-memory calibration model.
+	@return Minimal persisted geometry mapping.
+	"""
+	prepared: Dict[str, Any] = {}
+
+	geometry_type = geometry.get('type')
+	if geometry_type is not None:
+		prepared['type'] = geometry_type
+
+	dimensions = geometry.get('dimensions')
+	if isinstance(dimensions, dict):
+		prepared['dimensions'] = deepcopy(dimensions)
+
+	pose = geometry.get('pose')
+	if isinstance(pose, dict):
+		prepared['pose'] = deepcopy(pose)
+
+	corner_points = geometry.get('corner_points')
+	if isinstance(corner_points, list):
+		prepared['corner_points'] = deepcopy(corner_points)
+
 	return prepared
 
 
@@ -164,13 +235,14 @@ def build_geometry(
 	points = [sample['pose']['position'] for sample in samples]
 	geometry_type = shape_definition.get('geometry_type', 'generic')
 	shape_parameters = shape_parameters or {}
+	horizontal_plane = bool(shape_parameters.get('parallel_to_ground', False))
 
 	if shape_key in {'rectangle', 'top_surface_rectangle'} and len(points) == 4:
-		return _build_top_surface_rectangle_geometry(points, geometry_type, ground_plane_z)
+		return _build_top_surface_rectangle_geometry(points, geometry_type, ground_plane_z, horizontal_plane)
 	if shape_key == 'side_face_rectangle' and len(points) == 4:
 		return _build_side_face_rectangle_geometry(points, geometry_type, shape_parameters)
 	if shape_key == 'bottom_face_rectangle' and len(points) == 4:
-		return _build_bottom_face_rectangle_geometry(points, geometry_type, shape_parameters)
+		return _build_bottom_face_rectangle_geometry(points, geometry_type, shape_parameters, horizontal_plane)
 	if shape_key == 'cylinder' and len(points) >= 2:
 		return _build_cylinder_geometry(points, geometry_type, ground_plane_z)
 
@@ -319,6 +391,7 @@ def _build_top_surface_rectangle_geometry(
 	points: List[Dict[str, float]],
 	geometry_type: str,
 	ground_plane_z: float,
+	horizontal_plane: bool = False,
 ) -> Dict[str, Any]:
 	"""
 	@brief Build a box-like geometry model from four top-face corner samples.
@@ -328,7 +401,7 @@ def _build_top_surface_rectangle_geometry(
 	@param ground_plane_z Ground height in the base frame.
 	@return Geometry dictionary describing a rectangular prism.
 	"""
-	frame = _rectangle_frame(points)
+	frame = _rectangle_frame(_horizontalized_points(points) if horizontal_plane else points)
 	top_z = frame['center']['z']
 	height = max(0.0, top_z - ground_plane_z)
 	center = _translate_point(frame['center'], frame['normal'], -(height / 2.0))
@@ -386,6 +459,7 @@ def _build_bottom_face_rectangle_geometry(
 	points: List[Dict[str, float]],
 	geometry_type: str,
 	shape_parameters: Dict[str, Any],
+	horizontal_plane: bool = False,
 ) -> Dict[str, Any]:
 	"""
 	@brief Build a box model from a captured bottom face and operator-supplied height.
@@ -395,13 +469,17 @@ def _build_bottom_face_rectangle_geometry(
 	@param shape_parameters Operator-supplied shape parameters.
 	@return Geometry dictionary describing a hanging rectangular obstacle.
 	"""
-	frame = _rectangle_frame(points)
+	frame = _rectangle_frame(_horizontalized_points(points) if horizontal_plane else points)
 	depth = max(0.0, float(shape_parameters.get('depth', 0.0)))
-	up_axis = {'x': 0.0, 'y': 0.0, 'z': 1.0}
-	axis_u = _normalize_vector({'x': frame['axis_u']['x'], 'y': frame['axis_u']['y'], 'z': 0.0})
-	axis_v = _normalize_vector(_cross_product(up_axis, axis_u))
-	center = _translate_point(frame['center'], up_axis, depth / 2.0)
-	orientation = _quaternion_from_axes(axis_u, axis_v, up_axis)
+	if horizontal_plane:
+		up_axis = {'x': 0.0, 'y': 0.0, 'z': 1.0}
+		axis_u = _normalize_vector({'x': frame['axis_u']['x'], 'y': frame['axis_u']['y'], 'z': 0.0})
+		axis_v = _normalize_vector(_cross_product(up_axis, axis_u))
+		center = _translate_point(frame['center'], up_axis, depth / 2.0)
+		orientation = _quaternion_from_axes(axis_u, axis_v, up_axis)
+	else:
+		center = _translate_point(frame['center'], frame['normal'], depth / 2.0)
+		orientation = _quaternion_from_axes(frame['axis_u'], frame['axis_v'], frame['normal'])
 
 	return {
 		'type': geometry_type,
@@ -416,6 +494,27 @@ def _build_bottom_face_rectangle_geometry(
 		},
 		'bottom_face_points': points,
 	}
+
+
+def _horizontalized_points(points: List[Dict[str, float]]) -> List[Dict[str, float]]:
+	"""
+	@brief Return copies of points with a shared averaged z value.
+
+	@param points Captured face points.
+	@return Copied points flattened onto a horizontal plane.
+	"""
+	if not points:
+		return []
+
+	average_z = sum(float(point['z']) for point in points) / len(points)
+	return [
+		{
+			'x': float(point['x']),
+			'y': float(point['y']),
+			'z': average_z,
+		}
+		for point in points
+	]
 
 
 def _build_cylinder_geometry(

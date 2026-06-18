@@ -1,6 +1,6 @@
 version: 1
 updated_at: null
-base_frame: base_link
+base_frame: world
 tool_frame: tool_tip
 ground_plane_z: 0.0
 workspace_area: null

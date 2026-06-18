@@ -1,12 +1,12 @@
 # Arm Control
 
-This document covers motion execution in the `grasping_arm_control` package.
+This document covers motion execution in the `grasping_control` package.
 
 For calibration of the workspace file consumed by this node, see [workspace_creation.md](./workspace_creation.md).
 
 ## Features
 
-`arm_control_node` owns all robot-motion details after a client submits a `MoveToPose` goal.
+`motion_execution_node` owns all robot-motion details after a client submits a `MoveToPose` goal.
 
 Its major features are:
 
@@ -35,7 +35,7 @@ If the goal succeeds, the action returns `success=true`. If it fails, the action
 
 ## Workspace Loading
 
-At startup, the node resolves a workspace configuration path and loads the YAML document written by `workspace_calibration`.
+At startup, the node resolves a workspace configuration path and loads the YAML document written by `workspace_creation`.
 
 In a colcon workspace, it prefers a root-level `workspace.yaml` when that file exists. Otherwise it falls back to the package config path, unless `workspace_config_path` explicitly points somewhere else.
 

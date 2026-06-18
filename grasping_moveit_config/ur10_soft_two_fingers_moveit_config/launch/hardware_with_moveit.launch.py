@@ -1,5 +1,6 @@
 from functools import partial
 from pathlib import Path
+import yaml
 
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
@@ -22,6 +23,11 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
+
+
+def load_yaml(package_share_directory, relative_file_path):
+    with open(Path(package_share_directory) / relative_file_path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
 
 
 def launch_setup(
@@ -51,6 +57,7 @@ def launch_setup(
     headless_mode = LaunchConfiguration("headless_mode")
     controller_spawner_timeout = LaunchConfiguration("controller_spawner_timeout")
     launch_dashboard_client = LaunchConfiguration("launch_dashboard_client")
+    launch_servo = LaunchConfiguration("launch_servo")
     use_tool_communication = LaunchConfiguration("use_tool_communication")
     tool_parity = LaunchConfiguration("tool_parity")
     tool_baud_rate = LaunchConfiguration("tool_baud_rate")
@@ -190,6 +197,22 @@ def launch_setup(
             moveit_config.to_dict(),
             moveit_controller_config,
             move_group_configuration,
+        ],
+    )
+
+    servo_params = {
+        "moveit_servo": load_yaml(controller_config_share, Path("config") / "ur_servo.yaml")
+    }
+
+    servo_node = Node(
+        package="moveit_servo",
+        executable="servo_node_main",
+        output="screen",
+        condition=IfCondition(launch_servo),
+        parameters=[
+            servo_params,
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
         ],
     )
 
@@ -437,7 +460,12 @@ def launch_setup(
         "freedrive_mode_controller",
         "tool_contact_controller",
     ]
-    if activate_joint_controller.perform(context) == "true":
+
+    if launch_servo.perform(context) == "true":
+        controllers_active.append("forward_position_controller")
+        controllers_inactive.remove("forward_position_controller")
+
+    elif activate_joint_controller.perform(context) == "true":
         controllers_active.append(initial_joint_controller.perform(context))
         controllers_inactive.remove(initial_joint_controller.perform(context))
 
@@ -460,6 +488,7 @@ def launch_setup(
         robot_state_publisher_node,
         trajectory_until_node,
         move_group_node,
+        servo_node,
         *controller_spawners,
     ]
 
@@ -468,7 +497,7 @@ def generate_launch_description():
     ur_robot_driver_share = get_package_share_directory("ur_robot_driver")
     ur_client_library_share = get_package_share_directory("ur_client_library")
     ur_client_library_prefix = get_package_prefix("ur_client_library")
-    grasping_arm_control_share = get_package_share_directory("grasping_arm_control")
+    ur10_moveit_config_share = get_package_share_directory("ur10_moveit_config")
     grasping_description_share = get_package_share_directory("grasping_description")
     gripper_ros_share = get_package_share_directory("gripper_ros")
     moveit_config_share = get_package_share_directory("ur10_soft_two_fingers_moveit_config")
@@ -523,10 +552,11 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "kinematics_params_file",
                 default_value=str(
-                    Path(grasping_arm_control_share) / "config" / "ur_kinematics.yaml"
+                    Path(ur10_moveit_config_share) / "config" / "ur_kinematics.yaml"
                 ),
             ),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
+            DeclareLaunchArgument("launch_servo", default_value="false"),
             DeclareLaunchArgument("launch_dashboard_client", default_value="true"),
             DeclareLaunchArgument(
                 "rviz_config_file",

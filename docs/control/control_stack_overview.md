@@ -5,15 +5,15 @@ This document covers the shared architecture and bringup flow for the grasping c
 Use the topic-specific documents for implementation details:
 
 - [grasping_pipeline.md](./grasping_pipeline.md) for `grasping_node`
-- [arm_control.md](./arm_control.md) for `arm_control_node`
-- [workspace_creation.md](./workspace_creation.md) for `workspace_calibration`
+- [arm_control.md](./arm_control.md) for `motion_execution_node`
+- [workspace_creation.md](./workspace_creation.md) for `workspace_creation`
 
 ## Architecture
 
 The motion stack is split into two ROS 2 nodes.
 
 - `grasping_node` orchestrates the grasp pipeline.
-- `arm_control_node` executes robot motion through MoveIt.
+- `motion_execution_node` executes robot motion through MoveIt.
 
 At runtime the stack usually depends on four subsystems:
 
@@ -33,7 +33,7 @@ Action:
 - Result: `bool success`, `string message`
 - Feedback: `string state`
 
-The goal stays intentionally minimal. Clients send only a target pose, and `arm_control_node` resolves transforms, workspace configuration, and MoveIt planning from its own parameters.
+The goal stays intentionally minimal. Clients send only a target pose, and `motion_execution_node` resolves transforms, workspace configuration, and MoveIt planning from its own parameters.
 
 ## Bringup Launch File
 
@@ -43,10 +43,10 @@ It launches:
 
 - a static TF publisher from end effector to gripper
 - a static TF publisher from end effector to camera
-- `arm_control_node`
+- `motion_execution_node`
 - `grasping_node`
 
-The launch file passes planning-related parameters only to `arm_control_node`. It passes pipeline parameters and the arm action name to `grasping_node`.
+The launch file passes planning-related parameters only to `motion_execution_node`. It passes pipeline parameters and the arm action name to `grasping_node`.
 
 ## Static TF Assumptions
 
@@ -120,7 +120,7 @@ For end effector to camera:
 ## Typical Run
 
 1. Start MoveIt and the robot driver.
-2. Calibrate or update `workspace.yaml` with `workspace_calibration` if needed.
+2. Calibrate or update `workspace.yaml` with `workspace_creation` if needed.
 3. Start the gripper action server.
 4. Start AnyGrasp.
 5. Launch `grip.launch.py`.
@@ -143,7 +143,7 @@ ros2 launch grasping grip.launch.py server_mode:=false
 For the full stack to work, you need:
 
 1. AnyGrasp running and exposing the configured service.
-2. `arm_control_node` running and exposing the configured `MoveToPose` action.
+2. `motion_execution_node` running and exposing the configured `MoveToPose` action.
 3. A TF tree connecting the planning frame and the frame attached to the returned grasp pose.
 4. MoveIt running with the configured `MoveGroup` action.
 5. A gripper action server exposing the configured open and close actions.

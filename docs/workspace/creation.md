@@ -1,6 +1,6 @@
 # Workspace Creation
 
-This document covers the interactive calibration flow that starts from `grasping_arm_control/config/workspace_empty.yaml` and saves named workspace YAML files on demand.
+This document covers the interactive calibration flow that starts from `grasping_control/config/workspace_empty.yaml` and saves named workspace YAML files on demand.
 
 For how the runtime system consumes that file, see [arm_control.md](./arm_control.md).
 
@@ -8,7 +8,7 @@ For how the runtime system consumes that file, see [arm_control.md](./arm_contro
 
 The calibration workflow stores robot-referenced workspace data for two different runtime uses.
 
-- `objects`: collision geometry that `arm_control_node` loads into the MoveIt planning scene
+- `objects`: collision geometry that `motion_execution_node` loads into the MoveIt planning scene
 - `workspace_area`: an optional square work zone used to reject out-of-bounds target poses before planning
 
 The calibration node records manual samples around the robot, preserves the raw capture data, and derives simple planning primitives from those samples.
@@ -36,7 +36,7 @@ The current flow supports:
 - rectangular prisms derived from four top-face corners
 - cylinders derived from one center point and four rim points
 
-Shape requirements are defined in `grasping_arm_control/config/shape_definitions.yaml`, so new capture patterns can be added without rewriting the interactive loop.
+Shape requirements are defined in `grasping_control/config/shape_definitions.yaml`, so new capture patterns can be added without rewriting the interactive loop.
 
 ## Interactive Flow
 
@@ -115,7 +115,7 @@ Use the `w` option in the calibration menu to record the robot working area.
 1. Move the tool to the first workspace corner and press Enter.
 2. Continue around the boundary in order for corners 2 through 4.
 3. The node stores the raw samples and derives a square-like area geometry.
-4. `arm_control_node` later uses those saved corners for its planar inside/outside test.
+4. `motion_execution_node` later uses those saved corners for its planar inside/outside test.
 
 The capture order matters. The runtime area filter assumes the four corners are recorded in order around the boundary.
 
@@ -188,45 +188,41 @@ The saved geometry becomes a cylinder aligned with the base frame.
 - `workspace_config_path`
 - `shape_definitions_path`
 
-If you override `workspace_config_path`, point `arm_control_node` at the same file so both nodes use the same calibrated scene.
+If you override `workspace_config_path`, point `motion_execution_node` at the same file so both nodes use the same calibrated scene.
 
-If you do not override `workspace_config_path`, `workspace_calibration` starts from `workspace_empty.yaml`. When you choose `save`, it asks for a file name and writes that YAML into the colcon workspace root.
+If you do not override `workspace_config_path`, `workspace_creation` starts from `workspace_empty.yaml`. When you choose `save`, it asks for a file name and writes that YAML into the colcon workspace root.
 
 
 
 ## Usage Commands
 
-- Start the ur10 arm with gripper. As an example,
+- Start the ur10 arm with gripper in servo mode. As an example,
 
 ```bash
 source install/setup.bash
-ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
+ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py launch_servo:=true
 ```
 
 - Start workspace calibration:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_arm_control workspace_calibration
+ros2 run grasping_control workspace_creation
 ```
 
-- Start the arm control node with the calibrated workspace file:
+- Move the arm with following servo controller to relavent point in space
 
 ```bash
 source install/setup.bash
-ros2 run grasping_arm_control arm_control_node
+ros2 run grasping_control servo_teleop
 ```
 
-- Start the arm control node with an explicit workspace file override:
+Follow the onscreen guidelines to add/edit workspace and objects.
 
-```bash
-source install/setup.bash
-ros2 run grasping_arm_control arm_control_node --ros-args -p workspace_config_path:=/path/to/workspace.yaml
-```
 
-## Typical Session
+### Typical Session
 
-1. Run `workspace_calibration`.
+1. Run `workspace_creation`.
 2. Press `w` to calibrate the workspace area if needed.
 3. Capture the four workspace corners in order.
 4. Add or update collision objects as needed.

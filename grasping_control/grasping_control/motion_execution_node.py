@@ -8,14 +8,15 @@ from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalRespons
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 
-from grasping_arm_control.common import (
+from grasping_control.common import (
 	Quaternion,
+	dict_to_pose,
 	load_yaml_dict,
 	normalize_quaternion,
 	resolve_config_path,
 	transform_pose_to_frame,
 )
-from grasping_arm_control.workspace_utils import collision_objects_from_workspace, point_in_workspace_area
+from grasping_control.workspace_utils import collision_objects_from_workspace, point_in_workspace_area
 from grasping_msgs.action import MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
@@ -35,7 +36,7 @@ import tf2_ros
 from visualization_msgs.msg import Marker
 
 
-class ArmControlNode(Node):
+class MotionExecutionNode(Node):
 	"""
 	@brief Action server that plans and executes arm motion requests with MoveIt.
 	"""
@@ -44,7 +45,7 @@ class ArmControlNode(Node):
 		"""
 		@brief Initialize parameters, TF, MoveIt clients, and the action server.
 		"""
-		super().__init__('arm_control_node')
+		super().__init__('motion_execution_node')
 
 		self.declare_parameter('action_name', 'move_arm_to_pose')
 		self.declare_parameter('move_group_action_name', 'move_action')
@@ -65,12 +66,13 @@ class ArmControlNode(Node):
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._workspace_config_path = resolve_config_path(
-			'grasping_arm_control',
+			'grasping_control',
 			str(self.get_parameter('workspace_config_path').value),
 			'workspace.yaml',
 		)
 		self._workspace_area: Optional[Dict[str, Any]] = None
 		self._workspace_area_frame = self._planning_frame
+		self._post_grasp_pose: Optional[Dict[str, Any]] = None
 
 		# TF is only handled in this node so every incoming action goal is transformed into
 		# the planning frame before MoveIt constraints are constructed.
@@ -106,11 +108,11 @@ class ArmControlNode(Node):
 		)
 
 		# Load static workspace obstacles once at startup so every later arm action is planned
-		# against the calibrated scene written by workspace_calibration_node.py.
+		# against the calibrated scene written by workspace_creation_node.py.
 		self._load_workspace_into_planning_scene()
 
 		self.get_logger().info(
-			f"Arm control action server ready on {self.get_parameter('action_name').value}"
+			f"Motion execution action server ready on {self.get_parameter('action_name').value}"
 		)
 
 	def destroy_node(self) -> bool:
@@ -155,6 +157,11 @@ class ArmControlNode(Node):
 			# then uses a single planning pipeline for both grasp and post-grasp motion.
 			feedback.state = 'transforming_target_pose'
 			goal_handle.publish_feedback(feedback)
+			if bool(goal_handle.request.move_to_post_grasp_pose):
+				configured_post_grasp_pose = self._get_post_grasp_pose_stamped()
+				if configured_post_grasp_pose is None:
+					raise RuntimeError('No post-grasp pose is configured in the workspace file.')
+				target_pose = configured_post_grasp_pose
 			target_pose = transform_pose_to_frame(
 				self,
 				self._tf_buffer,
@@ -199,6 +206,13 @@ class ArmControlNode(Node):
 		# primitive geometry, so startup only needs to translate it into CollisionObjects.
 		workspace_config = load_yaml_dict(self._workspace_config_path, {'workspace_area': None, 'objects': []})
 		self._workspace_area_frame = str(workspace_config.get('base_frame', self._planning_frame))
+		post_grasp_pose = workspace_config.get('post_grasp_pose')
+		if isinstance(post_grasp_pose, dict):
+			self._post_grasp_pose = post_grasp_pose
+		else:
+			self._post_grasp_pose = None
+			if post_grasp_pose is not None:
+				self.get_logger().warn('Ignoring invalid post_grasp_pose value; expected a mapping.')
 		workspace_area = workspace_config.get('workspace_area')
 		if isinstance(workspace_area, dict):
 			self._workspace_area = workspace_area
@@ -247,6 +261,27 @@ class ArmControlNode(Node):
 			return
 
 		self.get_logger().info(f'Applied {len(collision_objects)} workspace objects to the planning scene.')
+
+	def _get_post_grasp_pose_stamped(self) -> Optional[PoseStamped]:
+		"""
+		@brief Return the workspace-configured post-grasp pose as a PoseStamped.
+
+		@return PoseStamped when configured and valid, otherwise None.
+		"""
+		if not isinstance(self._post_grasp_pose, dict):
+			return None
+
+		frame = str(self._post_grasp_pose.get('frame', '')).strip()
+		pose_dict = self._post_grasp_pose.get('pose')
+		if not frame or not isinstance(pose_dict, dict):
+			self.get_logger().warn('Ignoring invalid post_grasp_pose entry in workspace config.')
+			return None
+
+		pose_stamped = PoseStamped()
+		pose_stamped.header.stamp = self.get_clock().now().to_msg()
+		pose_stamped.header.frame_id = frame
+		pose_stamped.pose = dict_to_pose(pose_dict)
+		return pose_stamped
 
 	def _target_pose_in_workspace_area(self, target_pose: PoseStamped) -> bool:
 		"""
@@ -449,7 +484,7 @@ def main(args: Optional[List[str]] = None) -> None:
 	@param args Optional ROS command-line arguments.
 	"""
 	rclpy.init(args=args)
-	node = ArmControlNode()
+	node = MotionExecutionNode()
 	try:
 		rclpy.spin(node)
 	finally:

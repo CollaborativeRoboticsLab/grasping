@@ -58,7 +58,7 @@ The node expects an [AnyGrasp service](https://github.com/CollaborativeRoboticsL
 - Default service name: `detection`
 - Alternate service name used in this repo: `tracking`
 
-The returned pose keeps the original point-cloud header. The grasping node forwards that pose as-is and relies on `arm_control_node` to transform it into the planning frame.
+The returned pose keeps the original point-cloud header. The grasping node forwards that pose as-is and relies on `motion_execution_node` to transform it into the planning frame.
 
 ## Gripper Interaction
 

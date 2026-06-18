@@ -1,7 +1,7 @@
 from glob import glob
 from setuptools import find_packages, setup
 
-package_name = 'grasping_arm_control'
+package_name = 'grasping_control'
 
 setup(
     name=package_name,
@@ -28,8 +28,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'arm_control_node = grasping_arm_control.arm_control_node:main',
-            'workspace_calibration = grasping_arm_control.workspace_calibration_node:main',
+            'motion_execution_node = grasping_control.motion_execution_node:main',
+            'workspace_creation = grasping_control.workspace_creation_node:main',
+            'servo_teleop = grasping_control.servo_teleop:main',
         ],
     },
 )

@@ -9,7 +9,7 @@ from pathlib import Path
 def generate_launch_description():
 	ur_robot_driver_share = get_package_share_directory('ur_robot_driver')
 	ur_moveit_config_share = get_package_share_directory('ur_moveit_config')
-	grasping_arm_control_share = get_package_share_directory('grasping_arm_control')
+	ur10_moveit_config_share = get_package_share_directory('ur10_moveit_config')
 
 	ur_type = LaunchConfiguration('ur_type')
 	robot_ip = LaunchConfiguration('robot_ip')
@@ -70,7 +70,7 @@ def generate_launch_description():
 		DeclareLaunchArgument(
 			'kinematics_params_file',
 			default_value=str(
-				Path(grasping_arm_control_share) / 'config' / 'ur_kinematics.yaml'
+					Path(ur10_moveit_config_share) / 'config' / 'ur_kinematics.yaml'
 			),
 		),
 		DeclareLaunchArgument('launch_rviz', default_value='true'),

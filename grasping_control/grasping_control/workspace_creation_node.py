@@ -8,12 +8,12 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from grasping_arm_control.common import (
+from grasping_control.common import (
 	find_colcon_workspace_root,
 	load_yaml_dict,
 	resolve_config_path,
 )
-from grasping_arm_control.workspace_utils import (
+from grasping_control.workspace_utils import (
 	build_geometry,
 	build_workspace_area,
 	default_shape_definitions,
@@ -23,7 +23,7 @@ from grasping_arm_control.workspace_utils import (
 )
 
 
-class WorkspaceCalibrationNode(Node):
+class WorkspaceCreationNode(Node):
 	"""
 	@brief Interactive ROS node used to calibrate workspace collision objects.
 	"""
@@ -32,10 +32,10 @@ class WorkspaceCalibrationNode(Node):
 		"""
 		@brief Initialize subscriptions, TF access, and the CLI worker thread.
 		"""
-		super().__init__('workspace_calibration_node')
+		super().__init__('workspace_creation_node')
 
 		self.declare_parameter('joint_state_topic', '/joint_states')
-		self.declare_parameter('base_frame', 'base_link')
+		self.declare_parameter('base_frame', 'world')
 		self.declare_parameter('tool_frame', 'tool0')
 		self.declare_parameter('ground_plane_z', 0.0)
 		self.declare_parameter('workspace_config_path', '')
@@ -51,7 +51,7 @@ class WorkspaceCalibrationNode(Node):
 		self._tool_frame = str(self.get_parameter('tool_frame').value)
 		self._ground_plane_z = float(self.get_parameter('ground_plane_z').value)
 		self._workspace_config_path = resolve_config_path(
-			'grasping_arm_control',
+			'grasping_control',
 			str(self.get_parameter('workspace_config_path').value),
 			'workspace_empty.yaml',
 		)
@@ -59,7 +59,7 @@ class WorkspaceCalibrationNode(Node):
 		self._workspace_write_path = Path(configured_write_path).expanduser().resolve() if configured_write_path else None
 		self._workspace_root = find_colcon_workspace_root(Path(__file__))
 		self._shape_definitions_path = resolve_config_path(
-			'grasping_arm_control',
+			'grasping_control',
 			str(self.get_parameter('shape_definitions_path').value),
 			'shape_definitions.yaml',
 		)
@@ -123,7 +123,7 @@ class WorkspaceCalibrationNode(Node):
 			workspace_config.setdefault('objects', [])
 			self._interactive_loop(workspace_config, shape_definitions)
 		except Exception as exc:
-			self.get_logger().error(f'Calibration session failed: {exc}')
+			self.get_logger().error(f'Workspace creation session failed: {exc}')
 		finally:
 			self._shutdown_requested.set()
 
@@ -140,7 +140,7 @@ class WorkspaceCalibrationNode(Node):
 		is_dirty = False
 
 		print('')
-		print('Workspace calibration session started.')
+		print('Workspace creation session started.')
 		print(f'Base frame: {self._base_frame}')
 		print(f'Tool frame: {self._tool_frame}')
 		print(f'Ground plane z: {self._ground_plane_z:.4f}')
@@ -352,7 +352,7 @@ class WorkspaceCalibrationNode(Node):
 				samples.append(sample)
 				break
 
-		shape_parameters = self._prompt_for_shape_parameters(shape_definition)
+		shape_parameters = self._prompt_for_shape_parameters(object_entry['shape'], shape_definition)
 		if shape_parameters is None:
 			return None
 
@@ -375,18 +375,33 @@ class WorkspaceCalibrationNode(Node):
 		object_entry['geometry'] = geometry
 		return object_entry
 
-	def _prompt_for_shape_parameters(self, shape_definition: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+	def _prompt_for_shape_parameters(
+		self,
+		shape_key: str,
+		shape_definition: Dict[str, Any],
+	) -> Optional[Dict[str, Any]]:
 		"""
 		@brief Prompt the operator for any manual parameters required by the shape.
 
+		@param shape_key Logical shape key for the capture.
 		@param shape_definition Selected shape definition.
 		@return Shape parameter mapping, or None when the operator cancels.
 		"""
+		captured_parameters: Dict[str, Any] = {}
+		if shape_key in {'top_surface_rectangle', 'bottom_face_rectangle'}:
+			horizontal_plane = self._prompt_yes_no(
+				'Are the points in horizontal plane parallel to ground? If yes, z values will be averaged [Y/n]: ',
+				default=True,
+			)
+			if horizontal_plane is None:
+				print('Object capture cancelled.')
+				return None
+			captured_parameters['parallel_to_ground'] = horizontal_plane
+
 		manual_parameters = shape_definition.get('manual_parameters', {})
 		if not isinstance(manual_parameters, dict) or not manual_parameters:
-			return {}
+			return captured_parameters
 
-		captured_parameters: Dict[str, Any] = {}
 		for parameter_name, parameter_definition in manual_parameters.items():
 			if not isinstance(parameter_definition, dict):
 				parameter_definition = {}
@@ -423,6 +438,28 @@ class WorkspaceCalibrationNode(Node):
 				break
 
 		return captured_parameters
+
+	def _prompt_yes_no(self, prompt: str, default: bool = True) -> Optional[bool]:
+		"""
+		@brief Prompt the operator for a yes/no answer.
+
+		@param prompt Prompt text shown to the operator.
+		@param default Value returned when the operator presses Enter.
+		@return Boolean answer, or None when cancelled.
+		"""
+		while rclpy.ok():
+			response = input(prompt).strip().lower()
+			if response in {'cancel', 'c', 'q'}:
+				return None
+			if not response:
+				return default
+			if response in {'y', 'yes'}:
+				return True
+			if response in {'n', 'no'}:
+				return False
+			print('Enter y, n, or type cancel.')
+
+		return None
 
 	def _capture_workspace_area(self) -> Optional[Dict[str, Any]]:
 		"""
@@ -590,7 +627,7 @@ def main(args: Optional[List[str]] = None) -> None:
 	@param args Optional ROS command-line arguments.
 	"""
 	rclpy.init(args=args)
-	node = WorkspaceCalibrationNode()
+	node = WorkspaceCreationNode()
 	try:
 		rclpy.spin(node)
 	except KeyboardInterrupt:

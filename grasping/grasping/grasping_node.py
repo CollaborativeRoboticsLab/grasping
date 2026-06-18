@@ -33,8 +33,6 @@ class GraspingNode(Node):
         self.declare_parameter("anygrasp_service", "detection")
         self.declare_parameter("arm_action_name", "move_arm_to_pose")
         self.declare_parameter("do_post_grasp_move", True)
-        self.declare_parameter("post_grasp_frame", "base_link")
-        self.declare_parameter("post_grasp_pose", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         self.declare_parameter("open_action_name", "/open_gripper")
         self.declare_parameter("close_action_name", "/close_gripper")
 
@@ -90,8 +88,7 @@ class GraspingNode(Node):
             return False, "Failed to close gripper."
 
         if bool(self.get_parameter("do_post_grasp_move").value):
-            post_pose = self._get_post_grasp_pose_stamped()
-            if not self._move_to_pose(post_pose):
+            if not self._move_to_post_grasp_pose():
                 return False, "Arm-control move to post-grasp pose failed."
 
         return True, "Grasping pipeline completed."
@@ -130,6 +127,7 @@ class GraspingNode(Node):
         # resolves everything else from its own MoveIt and workspace configuration.
         goal = MoveToPose.Goal()
         goal.target_pose = target_pose
+        goal.move_to_post_grasp_pose = False
 
         send_future = self._arm_control_client.send_goal_async(goal)
         rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
@@ -146,6 +144,40 @@ class GraspingNode(Node):
         rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
         if not result_future.done() or result_future.result() is None:
             self.get_logger().error("Arm-control result not received.")
+            return False
+
+        result = result_future.result().result
+        if not result.success:
+            self.get_logger().error(result.message)
+            return False
+
+        return True
+
+    def _move_to_post_grasp_pose(self) -> bool:
+        action_name = str(self.get_parameter("arm_action_name").value)
+        if not self._arm_control_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error(f"Arm control action server '{action_name}' not available.")
+            return False
+
+        goal = MoveToPose.Goal()
+        goal.target_pose = PoseStamped()
+        goal.move_to_post_grasp_pose = True
+
+        send_future = self._arm_control_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
+        if not send_future.done() or send_future.result() is None:
+            self.get_logger().error("Failed to send arm-control post-grasp goal.")
+            return False
+
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error("Arm-control post-grasp goal was rejected.")
+            return False
+
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
+        if not result_future.done() or result_future.result() is None:
+            self.get_logger().error("Arm-control post-grasp result not received.")
             return False
 
         result = result_future.result().result
@@ -211,27 +243,6 @@ class GraspingNode(Node):
             return False
 
         return bool(result_future.result().result.success)
-
-    def _get_post_grasp_pose_stamped(self) -> PoseStamped:
-        vals = list(self.get_parameter("post_grasp_pose").value)
-        if len(vals) != 7:
-            raise RuntimeError("post_grasp_pose must be [x,y,z,qx,qy,qz,qw]")
-
-        # The post-grasp pose stays configurable from launch, but is sent through the same
-        # arm-control action path as the main grasp pose.
-        frame = str(self.get_parameter("post_grasp_frame").value)
-        pose_stamped = PoseStamped()
-        pose_stamped.header.stamp = self.get_clock().now().to_msg()
-        pose_stamped.header.frame_id = frame
-        pose_stamped.pose.position.x = float(vals[0])
-        pose_stamped.pose.position.y = float(vals[1])
-        pose_stamped.pose.position.z = float(vals[2])
-        pose_stamped.pose.orientation.x = float(vals[3])
-        pose_stamped.pose.orientation.y = float(vals[4])
-        pose_stamped.pose.orientation.z = float(vals[5])
-        pose_stamped.pose.orientation.w = float(vals[6])
-        return pose_stamped
-
 
 def main(args: Optional[List[str]] = None) -> None:
     rclpy.init(args=args)

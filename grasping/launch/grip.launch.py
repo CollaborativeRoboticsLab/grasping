@@ -6,10 +6,10 @@ from launch_ros.actions import Node
 
 def generate_launch_description() -> LaunchDescription:
 
-	arm_control_node = Node(
-		package="grasping_arm_control",
-		executable="arm_control_node",
-		name="arm_control_node",
+	motion_execution_node = Node(
+		package="grasping_control",
+		executable="motion_execution_node",
+		name="motion_execution_node",
 		output="screen",
 		parameters=[
 			{
@@ -42,8 +42,6 @@ def generate_launch_description() -> LaunchDescription:
 				"anygrasp_service": LaunchConfiguration("anygrasp_service"),
 				"arm_action_name": LaunchConfiguration("arm_action_name"),
 				"do_post_grasp_move": LaunchConfiguration("do_post_grasp_move"),
-				"post_grasp_frame": LaunchConfiguration("post_grasp_frame"),
-				"post_grasp_pose": [ "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "1.0" ],
 				"open_action_name": LaunchConfiguration("open_action_name"),
 				"close_action_name": LaunchConfiguration("close_action_name"),
 			}
@@ -71,8 +69,7 @@ def generate_launch_description() -> LaunchDescription:
 			DeclareLaunchArgument("open_action_name", default_value="/open_gripper"),
 			DeclareLaunchArgument("close_action_name", default_value="/close_gripper"),
 			DeclareLaunchArgument("do_post_grasp_move", default_value="true"),
-			DeclareLaunchArgument("post_grasp_frame", default_value="base_link"),
-			arm_control_node,
+			motion_execution_node,
 			grasping_node,
 		]
 	)

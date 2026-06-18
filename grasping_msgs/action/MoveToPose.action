@@ -1,5 +1,6 @@
 # Goal
 geometry_msgs/PoseStamped target_pose
+bool move_to_post_grasp_pose
 ---
 # Result
 bool success

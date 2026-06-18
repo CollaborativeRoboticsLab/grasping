@@ -18,7 +18,7 @@ In the devccontainer.json add,
   ],
 ```
 
-while in the `grasping_arm_control/ur10.launch.py`, set the default value of `reverse_ip` to the host machine's IP on the robot network.
+while in the `grasping_control/ur10.launch.py`, set the default value of `reverse_ip` to the host machine's IP on the robot network.
 
 ```python
 DeclareLaunchArgument('reverse_ip', default_value=' <host_robot_network_ip>'),
@@ -28,4 +28,4 @@ Then launch the arm control node with:
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py
+ros2 launch grasping_control ur10.launch.py

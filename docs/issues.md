@@ -64,5 +64,5 @@ Then launch the arm control node with:
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_arm_control ur10.launch.py
+ros2 launch grasping_control ur10.launch.py
 ``` 
