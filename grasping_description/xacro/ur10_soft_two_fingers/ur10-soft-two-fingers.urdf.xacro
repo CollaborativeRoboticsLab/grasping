@@ -123,7 +123,7 @@
 		parent="$(arg tf_prefix)tool0"
 		prefix="$(arg tf_prefix)"
 		xyz="0 0 0"
-		rpy="0 0 -1.57" />
+		rpy="0 0 0" />
 
 	<xacro:two_finger_gripper
 		parent="$(arg tf_prefix)camera_mount_link"
