@@ -7,8 +7,6 @@
   },
   "runArgs": [
     "--privileged",
-    "--group-add",
-    "dialout",
     "--gpus",
     "all"
   ],
