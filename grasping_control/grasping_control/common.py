@@ -65,6 +65,15 @@ def resolve_config_path(package_name: str, configured_path: str, default_name: s
         return Path(configured_path).expanduser().resolve()
 
     package_root = Path(__file__).resolve().parents[1]
+
+    # Workspace runtime configs are commonly written to the colcon workspace root.
+    if default_name == 'workspace.yaml':
+        workspace_root = find_colcon_workspace_root(package_root)
+        if workspace_root is not None:
+            workspace_config_path = workspace_root / default_name
+            if workspace_config_path.exists():
+                return workspace_config_path
+
     source_config_path = package_root / 'config' / default_name
     if source_config_path.exists() or package_root.name == package_name:
         return source_config_path

@@ -202,6 +202,13 @@ class MotionExecutionNode(Node):
 		"""
 		@brief Load persisted workspace obstacles into the MoveIt planning scene.
 		"""
+		if not self._workspace_config_path.exists():
+			self.get_logger().warn(
+				f'Workspace config not found at {self._workspace_config_path}; starting with an empty scene.'
+			)
+		else:
+			self.get_logger().info(f'Loading workspace config from {self._workspace_config_path}')
+
 		# The workspace file is authored by the calibration node and already contains derived
 		# primitive geometry, so startup only needs to translate it into CollisionObjects.
 		workspace_config = load_yaml_dict(self._workspace_config_path, {'workspace_area': None, 'objects': []})

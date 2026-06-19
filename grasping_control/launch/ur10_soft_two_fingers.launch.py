@@ -10,6 +10,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
+	grasping_control_share = get_package_share_directory('grasping_control')
 	ur10_moveit_config_share = get_package_share_directory('ur10_soft_two_fingers_moveit_config')
 
 	hardware_with_moveit = IncludeLaunchDescription(
@@ -67,7 +68,10 @@ def generate_launch_description() -> LaunchDescription:
 			DeclareLaunchArgument('orientation_tolerance_rad', default_value='0.1'),
 			DeclareLaunchArgument('planning_pipeline_id', default_value=''),
 			DeclareLaunchArgument('planner_id', default_value=''),
-			DeclareLaunchArgument('workspace_config_path', default_value=''),
+			DeclareLaunchArgument(
+				'workspace_config_path',
+				default_value=str(Path(grasping_control_share) / 'config' / 'workspace_1.yaml'),
+			),
 			demo,
 			hardware_with_moveit,
 			motion_execution_node,

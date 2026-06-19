@@ -80,24 +80,6 @@ def launch_setup(
         / "ur10_soft_two_fingers"
         / "ur10-soft-two-fingers.urdf.xacro"
     )
-    joint_limit_params = (
-        Path(grasping_description_share)
-        / "config"
-        / ur_type.perform(context)
-        / "joint_limits.yaml"
-    )
-    physical_params = (
-        Path(grasping_description_share)
-        / "config"
-        / ur_type.perform(context)
-        / "physical_parameters.yaml"
-    )
-    visual_params = (
-        Path(grasping_description_share)
-        / "config"
-        / ur_type.perform(context)
-        / "visual_parameters.yaml"
-    )
     script_filename = Path(ur_client_library_share) / "resources" / "external_control.urscript"
     input_recipe_filename = Path(ur_robot_driver_share) / "resources" / "rtde_input_recipe.txt"
     output_recipe_filename = Path(ur_robot_driver_share) / "resources" / "rtde_output_recipe.txt"
@@ -225,17 +207,8 @@ def launch_setup(
             "robot_ip:=",
             robot_ip,
             " ",
-            "joint_limit_params:=",
-            str(joint_limit_params),
-            " ",
             "kinematics_params:=",
             kinematics_params_file,
-            " ",
-            "physical_params:=",
-            str(physical_params),
-            " ",
-            "visual_params:=",
-            str(visual_params),
             " ",
             "safety_limits:=",
             safety_limits,
