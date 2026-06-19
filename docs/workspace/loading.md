@@ -1,5 +1,6 @@
 # Loading the workspace for planning
 
+To run the system without a robot, use the "use_demo:=true" launch parameter.
 
 ## Base ur10 arm
 
