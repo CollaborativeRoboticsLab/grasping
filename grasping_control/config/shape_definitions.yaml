@@ -1,14 +1,5 @@
-version: 1
+would tversion: 1
 shapes:
-  workspace:
-    display_name: Rectangular plane
-    geometry_type: box
-    description: workspace plane defined by four corners in order around the area.
-    point_labels:
-      - corner_1
-      - corner_2
-      - corner_3
-      - corner_4
   top_surface_rectangle:
     display_name: Top-surface rectangle
     geometry_type: box

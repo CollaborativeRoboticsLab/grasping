@@ -64,8 +64,8 @@ def generate_launch_description():
 
 	return LaunchDescription([
 		DeclareLaunchArgument('ur_type', default_value='ur10'),
-		DeclareLaunchArgument('robot_ip', default_value='192.168.10.156'),
-		DeclareLaunchArgument('reverse_ip', default_value='192.168.10.130'),
+		DeclareLaunchArgument('robot_ip', default_value='10.0.0.89'),
+		DeclareLaunchArgument('reverse_ip', default_value='10.0.0.179'),
 		DeclareLaunchArgument('use_sim', default_value='false'),
 		DeclareLaunchArgument(
 			'kinematics_params_file',

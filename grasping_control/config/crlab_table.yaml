@@ -1,0 +1,53 @@
+version: 1
+updated_at: '2026-06-22T05:54:51.934912+00:00'
+base_frame: world
+tool_frame: tool_tip
+ground_plane_z: 0.0
+workspace_area:
+  geometry:
+    type: square
+    dimensions:
+      side_length: 0.7796245966849457
+      height_from_ground: 0.9857941945733996
+    pose:
+      position:
+        x: -0.06447078533601493
+        y: 0.7350891393669301
+        z: 0.9857941945733996
+      orientation:
+        x: 0.0
+        y: 0.0
+        z: 0.0
+        w: 1.0
+    corner_points:
+    - x: -0.4523401664152986
+      y: 0.3357143921162502
+      z: 0.9782755498686686
+    - x: 0.26302971544060666
+      y: 0.2837353571948575
+      z: 0.9782970561054581
+    - x: 0.312939378403459
+      y: 1.1426385012384457
+      z: 0.9927155902641234
+    - x: -0.38151206877282673
+      y: 1.178268306918167
+      z: 0.9938885820553481
+objects:
+- name: Table
+  geometry:
+    type: box
+    dimensions:
+      x: 0.868609368157303
+      y: 0.704858608226313
+      z: 0.9858413935360373
+    pose:
+      position:
+        x: -0.07129851189651129
+        y: 0.7496785283451123
+        z: 0.49292069676801864
+      orientation:
+        x: 0.0
+        y: 0.0
+        z: 0.6837008015972337
+        w: 0.7297624366157114
+  shape: top_surface_rectangle

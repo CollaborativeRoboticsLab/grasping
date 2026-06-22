@@ -70,7 +70,7 @@ def generate_launch_description() -> LaunchDescription:
 			DeclareLaunchArgument('planner_id', default_value=''),
 			DeclareLaunchArgument(
 				'workspace_config_path',
-				default_value=str(Path(grasping_control_share) / 'config' / 'workspace_1.yaml'),
+				default_value=str(Path(grasping_control_share) / 'config' / 'crlab_table.yaml'),
 			),
 			demo,
 			hardware_with_moveit,
