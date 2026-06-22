@@ -505,7 +505,8 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("ur_type", default_value="ur10"),
-            DeclareLaunchArgument("robot_ip", default_value="192.168.10.156"),
+            DeclareLaunchArgument('robot_ip', default_value='10.0.0.89'),
+            DeclareLaunchArgument('reverse_ip', default_value='10.0.0.179'),
             DeclareLaunchArgument("safety_limits", default_value="true"),
             DeclareLaunchArgument("safety_pos_margin", default_value="0.15"),
             DeclareLaunchArgument("safety_k_position", default_value="20"),
@@ -515,7 +516,6 @@ def generate_launch_description():
                 default_value="ur10_soft_two_fingers_moveit_config",
             ),
             DeclareLaunchArgument("controllers_file", default_value="ur_controllers.yaml"),
-            DeclareLaunchArgument("reverse_ip", default_value="192.168.10.130"),
             DeclareLaunchArgument("tf_prefix", default_value=""),
             DeclareLaunchArgument("use_fake_hardware", default_value="false"),
             DeclareLaunchArgument("fake_sensor_commands", default_value="false"),

@@ -36,7 +36,7 @@ class WorkspaceCreationNode(Node):
 
 		self.declare_parameter('joint_state_topic', '/joint_states')
 		self.declare_parameter('base_frame', 'world')
-		self.declare_parameter('tool_frame', 'tool0')
+		self.declare_parameter('tool_frame', 'tool_tip')
 		self.declare_parameter('ground_plane_z', 0.0)
 		self.declare_parameter('workspace_config_path', '')
 		self.declare_parameter('workspace_write_path', '')
