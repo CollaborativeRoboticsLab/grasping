@@ -1,4 +1,8 @@
-weights/detection/**
-weights/tracking/**
-license/**
-cyclonedds.xml
+__pycache__/**
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dylib
+*.dll
+*.log       
