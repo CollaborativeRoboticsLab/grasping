@@ -68,6 +68,7 @@ class WorkspaceCreationNode(Node):
 		self._tf_listener = TransformListener(self._tf_buffer, self)
 
 		joint_state_topic = str(self.get_parameter('joint_state_topic').value)
+		self._joint_state_topic = joint_state_topic
 		self._joint_subscriber = self.create_subscription(
 			JointState,
 			joint_state_topic,
@@ -78,18 +79,6 @@ class WorkspaceCreationNode(Node):
 		self.create_timer(0.2, self._shutdown_if_requested)
 		self._cli_thread = threading.Thread(target=self._run_cli, daemon=True)
 		self._cli_thread.start()
-
-		self.get_logger().info(
-			f'Listening for joint states on {joint_state_topic} and TF {self._base_frame} -> {self._tool_frame}'
-		)
-		self.get_logger().info(f'Workspace template: {self._workspace_config_path}')
-		if self._workspace_write_path is not None:
-			self.get_logger().info(f'Workspace save path override: {self._workspace_write_path}')
-		elif self._workspace_root is not None:
-			self.get_logger().info(f'Workspace save root: {self._workspace_root}')
-		else:
-			self.get_logger().warn('Colcon workspace root not detected; saves will fall back to the config directory.')
-		self.get_logger().info(f'Shape definitions: {self._shape_definitions_path}')
 
 	def _joint_state_callback(self, msg: JointState) -> None:
 		"""
@@ -138,6 +127,18 @@ class WorkspaceCreationNode(Node):
 		if not shapes:
 			raise RuntimeError('No shapes defined in shape_definitions.yaml')
 		is_dirty = False
+
+		self.get_logger().info(
+			f'Listening for joint states on {self._joint_state_topic} and TF {self._base_frame} -> {self._tool_frame}'
+		)
+		self.get_logger().info(f'Workspace template: {self._workspace_config_path}')
+		if self._workspace_write_path is not None:
+			self.get_logger().info(f'Workspace save path override: {self._workspace_write_path}')
+		elif self._workspace_root is not None:
+			self.get_logger().info(f'Workspace save root: {self._workspace_root}')
+		else:
+			self.get_logger().warn('Colcon workspace root not detected; saves will fall back to the config directory.')
+		self.get_logger().info(f'Shape definitions: {self._shape_definitions_path}')
 
 		print('')
 		print('Workspace creation session started.')

@@ -210,7 +210,14 @@ source install/setup.bash
 ros2 run grasping_control workspace_creation
 ```
 
-- Move the arm with following servo controller to relavent point in space
+- Modify an existing workspace calibration:
+
+```bash
+source install/setup.bash
+ros2 run grasping_control workspace_creation --ros-args -p workspace_config_path:=/home/ubuntu/colcon_ws/src/grasping/grasping_control/config/crlab_table.yaml
+```
+
+- Move the arm with the following servo controller to a relevant point in space
 
 ```bash
 source install/setup.bash

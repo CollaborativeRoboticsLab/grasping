@@ -9,10 +9,10 @@ shapes:
       - corner_2
       - corner_3
       - corner_4
-  side_face_rectangle:
-    display_name: Side-face rectangle
+  right_side_face_rectangle:
+    display_name: Right-side face rectangle (robot on right)
     geometry_type: box
-    description: Capture the four side-face corners in order around the visible surface, then enter the obstacle depth from that face.
+    description: Capture the four side-face corners in order, with robot positioned on the RIGHT side. Depth extends to the LEFT.
     point_labels:
       - corner_1
       - corner_2
@@ -20,7 +20,20 @@ shapes:
       - corner_4
     manual_parameters:
       depth:
-        prompt: Enter obstacle depth from the captured side face in meters
+        prompt: Enter obstacle depth extending LEFT from the captured face in meters
+        min_value: 0.0
+  left_side_face_rectangle:
+    display_name: Left-side face rectangle (robot on left)
+    geometry_type: box
+    description: Capture the four side-face corners in order, with robot positioned on the LEFT side. Depth extends to the RIGHT.
+    point_labels:
+      - corner_1
+      - corner_2
+      - corner_3
+      - corner_4
+    manual_parameters:
+      depth:
+        prompt: Enter obstacle depth extending RIGHT from the captured face in meters
         min_value: 0.0
   bottom_face_rectangle:
     display_name: Bottom-face rectangle

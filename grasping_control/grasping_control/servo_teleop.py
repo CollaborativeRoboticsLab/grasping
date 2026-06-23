@@ -39,7 +39,7 @@ class ServoTeleop(Node):
 		self.declare_parameter("topic", "/servo_node/delta_twist_cmds")
 		self.declare_parameter("start_service", "/servo_node/start_servo")
 		self.declare_parameter("stop_service", "/servo_node/stop_servo")
-		self.declare_parameter("frame_id", "tool0")
+		self.declare_parameter("frame_id", "tool_tip")
 		self.declare_parameter("enable_smoothing", True)
 		self.declare_parameter("smoothing_alpha", 0.25)
 		self.declare_parameter("linear_speed", 0.50)

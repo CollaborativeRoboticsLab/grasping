@@ -61,15 +61,28 @@ def default_shape_definitions() -> Dict[str, Any]:
 				'description': 'Capture the four top-face corners in order around the object.',
 				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
 			},
-			'side_face_rectangle': {
-				'shape_key': 'side_face_rectangle',
-				'display_name': 'Side-face rectangle',
+			'right_side_face_rectangle': {
+				'shape_key': 'right_side_face_rectangle',
+				'display_name': 'Right-side face rectangle (robot on right)',
 				'geometry_type': 'box',
-				'description': 'Capture the four side-face corners in order around the visible surface, then enter the obstacle depth from that face.',
+				'description': 'Capture the four side-face corners in order, with robot positioned on the RIGHT side. Depth extends to the LEFT.',
 				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
 				'manual_parameters': {
 					'depth': {
-						'prompt': 'Enter obstacle depth from the captured side face in meters',
+						'prompt': 'Enter obstacle depth extending LEFT from the captured face in meters',
+						'min_value': 0.0,
+					},
+				},
+			},
+			'left_side_face_rectangle': {
+				'shape_key': 'left_side_face_rectangle',
+				'display_name': 'Left-side face rectangle (robot on left)',
+				'geometry_type': 'box',
+				'description': 'Capture the four side-face corners in order, with robot positioned on the LEFT side. Depth extends to the RIGHT.',
+				'point_labels': ['corner_1', 'corner_2', 'corner_3', 'corner_4'],
+				'manual_parameters': {
+					'depth': {
+						'prompt': 'Enter obstacle depth extending RIGHT from the captured face in meters',
 						'min_value': 0.0,
 					},
 				},
@@ -239,8 +252,10 @@ def build_geometry(
 
 	if shape_key in {'rectangle', 'top_surface_rectangle'} and len(points) == 4:
 		return _build_top_surface_rectangle_geometry(points, geometry_type, ground_plane_z, horizontal_plane)
-	if shape_key == 'side_face_rectangle' and len(points) == 4:
-		return _build_side_face_rectangle_geometry(points, geometry_type, shape_parameters)
+	if shape_key in {'side_face_rectangle', 'left_side_face_rectangle', 'right_side_face_rectangle'} and len(points) == 4:
+		# Determine orientation: left=True for left-side, False for right-side or legacy side_face_rectangle
+		is_left_side = shape_key == 'left_side_face_rectangle'
+		return _build_side_face_rectangle_geometry(points, geometry_type, shape_parameters, is_left_side)
 	if shape_key == 'bottom_face_rectangle' and len(points) == 4:
 		return _build_bottom_face_rectangle_geometry(points, geometry_type, shape_parameters, horizontal_plane)
 	if shape_key == 'cylinder' and len(points) >= 2:
@@ -426,6 +441,7 @@ def _build_side_face_rectangle_geometry(
 	points: List[Dict[str, float]],
 	geometry_type: str,
 	shape_parameters: Dict[str, Any],
+	is_left_side: bool = False,
 ) -> Dict[str, Any]:
 	"""
 	@brief Build a box model from a captured side face and operator-supplied depth.
@@ -433,12 +449,24 @@ def _build_side_face_rectangle_geometry(
 	@param points Captured side-face corner positions.
 	@param geometry_type Output primitive type name.
 	@param shape_parameters Operator-supplied shape parameters.
+	@param is_left_side When True, the robot is on the left side and depth extends right.
+	                    When False, the robot is on the right side and depth extends left.
 	@return Geometry dictionary describing a side-face anchored box.
 	"""
 	frame = _rectangle_frame(points)
 	depth = max(0.0, float(shape_parameters.get('depth', 0.0)))
-	center = _translate_point(frame['center'], frame['normal'], depth / 2.0)
-	orientation = _quaternion_from_axes(frame['axis_u'], frame['axis_v'], frame['normal'])
+	
+	# For left-side capture, we need to flip the normal direction so depth extends to the right
+	normal = frame['normal']
+	if is_left_side:
+		normal = {
+			'x': -normal['x'],
+			'y': -normal['y'],
+			'z': -normal['z'],
+		}
+	
+	center = _translate_point(frame['center'], normal, depth / 2.0)
+	orientation = _quaternion_from_axes(frame['axis_u'], frame['axis_v'], normal)
 
 	return {
 		'type': geometry_type,
