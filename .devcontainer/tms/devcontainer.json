@@ -1,5 +1,5 @@
 {
-  "name": "Omron Grasping Humble base",
+  "name": "TM S series Grasping Humble base",
   "dockerFile": "Dockerfile",
   "remoteUser": "ubuntu",
   "containerEnv": {
