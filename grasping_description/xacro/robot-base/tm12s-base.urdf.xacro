@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+	<xacro:macro name="tm12s_base" params="parent prefix:='' xyz:='0 0 0' rpy:='0 0 0' scale:='1 1 1'">
+		<material name="${prefix}tm12s_base_gray">
+			<color rgba="0.7 0.7 0.7 1.0" />
+		</material>
+
+		<link name="${prefix}tm12s_base_link">
+			<visual>
+				<origin xyz="0 0 0" rpy="0 3.14 0" />
+				<geometry>
+					<mesh filename="package://grasping_description/meshes/robot-base/tm12s-base.stl" scale="${scale}" />
+				</geometry>
+				<material name="${prefix}tm12s_base_gray" />
+			</visual>
+
+			<collision>
+				<origin xyz="0 0 0" rpy="0 3.14 0" />
+				<geometry>
+					<mesh filename="package://grasping_description/meshes/robot-base/tm12s-base.stl" scale="${scale}" />
+				</geometry>
+			</collision>
+		</link>
+
+		<joint name="${prefix}world_to_tm12s_base" type="fixed">
+			<parent link="${parent}" />
+			<child link="${prefix}tm12s_base_link" />
+			<origin xyz="${xyz}" rpy="${rpy}" />
+		</joint>
+	</xacro:macro>
+</robot>
