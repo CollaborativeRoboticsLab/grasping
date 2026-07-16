@@ -1,8 +1,8 @@
-# UR10 connection with devcontainer
+# TM12S connection with devcontainer
 
-If you are using the devcontainer with Docker bridge networking, set `reverse_ip` to the host machine's IP on the robot network so the robot can connect back to ports `50001`, `50003`, and `50004`. 
+If you are using the devcontainer and need to reach the physical TM12S controller from inside the container, make sure the container can access the robot network and pass the robot IP into the launch command.
 
-In the devccontainer.json add,
+In the `devcontainer.json`, add:
 
 ```json
   "runArgs": [
@@ -18,14 +18,17 @@ In the devccontainer.json add,
   ],
 ```
 
-while in the `grasping_control/ur10.launch.py`, set the default value of `reverse_ip` to the host machine's IP on the robot network.
+The TM soft-two-finger bringup accepts `tm_robot_ip` and forwards it to `tm_driver`.
+
+If you want a persistent default, set the default value of `tm_robot_ip` in `tm12s_soft_two_fingers_moveit_config/launch/hardware_with_moveit.launch.py` to the robot controller IP.
 
 ```python
-DeclareLaunchArgument('reverse_ip', default_value=' <host_robot_network_ip>'),
+DeclareLaunchArgument('tm_robot_ip', default_value='<robot_controller_ip>'),
 ```
 
 Then launch the arm control node with:
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control ur10.launch.py
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py tm_robot_ip:=<robot_controller_ip>
+```

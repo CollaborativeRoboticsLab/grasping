@@ -5,7 +5,7 @@ This document covers the shared architecture and bringup flow for the grasping c
 Use the topic-specific documents for implementation details:
 
 - [arm_control.md](./arm_control.md) for `motion_execution_node`
-- [workspace_creation.md](./workspace_creation.md) for `workspace_creation`
+- [creation.md](../workspace/creation.md) for `workspace_creation`
 
 ## Architecture
 

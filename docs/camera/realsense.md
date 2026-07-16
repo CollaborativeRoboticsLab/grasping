@@ -66,5 +66,5 @@ ros2 launch grasping_camera d435.launch.py
 	- If you see permission errors accessing the USB device, install the upstream udev rules from the RealSense ROS installation instructions.
 
 - **Topics / frames don’t match expectations**
-	- By default, the node is launched in the `camera_namespace` namespace (default: `camera`), so topics typically appear under `/camera/...`.
+	- By default, the node is launched with an empty `camera_namespace`, so topics are not automatically nested under `/camera/...` unless you set that namespace yourself.
 	- If you use multiple cameras, set `tf_prefix` and/or change `camera_namespace` to avoid collisions.

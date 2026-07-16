@@ -8,9 +8,9 @@ If you are setting this up yourself (outside the devcontainer) and using a Unive
 
 ## Calibration
 
-We are using a `ur10` mnaipulator in our system and we utilize standard launch files to start the robot. 
+We are using a `ur10` manipulator in our system and we utilize standard launch files to start the robot. 
 
-Since the calibration step depends on each robot, follow the instruction here to [calibrate](./../control/ur_calibration.md).
+Since the calibration step depends on each robot, follow the instructions here to [calibrate](./ur10_calibration.md).
 
 ## Start the UR robot
 
@@ -18,10 +18,10 @@ Use the following command to start the UR robot control
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control ur10.launch.py
+ros2 launch grasping_control ur10_soft_two_fingers.launch.py
 ```
 
-This wrapper launch file includes the default `ur10_moveit_config` hardware launch when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
+This wrapper launch file includes the default `ur10_soft_two_fingers_moveit_config` hardware launch when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
 
 The wrapper itself defines these defaults:
 
@@ -39,22 +39,22 @@ The wrapper itself defines these defaults:
 - `orientation_tolerance_rad:=0.1`
 - `planning_pipeline_id:=''`
 - `planner_id:=''`
-- `workspace_config_path:=''`
+- `workspace_config_path:=<grasping_control_share>/config/crlab_table.yaml`
 
-The included `ur10_moveit_config` launch still provides its own driver and MoveIt arguments, such as `robot_ip`, `launch_rviz`, and `initial_joint_controller`.
+The included `ur10_soft_two_fingers_moveit_config` launch still provides its own driver and MoveIt arguments, such as `robot_ip`, `launch_rviz`, and `initial_joint_controller`.
 
 Override any of them on the command line when needed, for example
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control ur10.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
+ros2 launch grasping_control ur10_soft_two_fingers.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
 ```
 
 Or switch the wrapper to demo mode:
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control ur10.launch.py use_demo:=true
+ros2 launch grasping_control ur10_soft_two_fingers.launch.py use_demo:=true
 ```
 
 if the execution fails, try the following command

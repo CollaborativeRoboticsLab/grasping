@@ -37,13 +37,13 @@ The node automatically calls `/servo_node/start_servo` on startup.
 
 ## Key Bindings
 
-Linear motion in the `tool0` frame:
+Linear motion in the `tool_tip` frame:
 
 - `w/s`: `+x / -x`
 - `a/d`: `+y / -y`
 - `q/e`: `+z / -z`
 
-Angular motion in the `tool0` frame:
+Angular motion in the `tool_tip` frame:
 
 - `u/o`: `+roll / -roll`
 - `i/k`: `+pitch / -pitch`
@@ -74,7 +74,7 @@ Useful runtime parameters:
 - `topic`: Servo twist input topic. Default `/servo_node/delta_twist_cmds`
 - `start_service`: Servo start service. Default `/servo_node/start_servo`
 - `stop_service`: Servo stop service. Default `/servo_node/stop_servo`
-- `frame_id`: command frame. Default `tool0`
+- `frame_id`: command frame. Default `tool_tip`
 - `linear_speed`: linear jogging speed in m/s. Default `0.50`
 - `angular_speed`: angular jogging speed in rad/s. Default `0.75`
 - `publish_rate_hz`: publish rate. Default `30.0`

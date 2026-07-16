@@ -2,7 +2,7 @@
 
 This document covers motion execution in the `grasping_control` package.
 
-For calibration of the workspace file consumed by this node, see [workspace_creation.md](./workspace_creation.md).
+For calibration of the workspace file consumed by this node, see [creation.md](../workspace/creation.md).
 
 ## Features
 

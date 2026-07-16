@@ -1,10 +1,10 @@
-# TechMann Robot Manipulator
+# Techman Robot Manipulator
 
 ## Installation
 
 We have configured the devcontainer to install the drivers required by the TM robots during the build process. 
     
-If you are setting this up yourself (outside the devcontainer) and using a TechMann Robot Manipulator, follow the official instructions [here](https://github.com/CollaborativeRoboticsLab/tm2_ros2)
+If you are setting this up yourself (outside the devcontainer) and using a Techman Robot Manipulator, follow the official instructions [here](https://github.com/CollaborativeRoboticsLab/tm2_ros2)
 
 ## Calibration
 
@@ -16,19 +16,19 @@ Use the following command to start the TM12S robot control
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control tm12s.launch.py
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py
 ```
 
-This wrapper launch file includes the default `tm12s_moveit_config` hardware launch when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
+This wrapper launch file includes the default `tm12s_soft_two_fingers_moveit_config` hardware launch when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
 
 The wrapper itself defines these defaults:
 
 - `use_demo:=false`
 - `arm_action_name:=move_arm_to_pose`
 - `move_group_action_name:=move_action`
-- `planning_group:=tmr_arm`
+- `planning_group:=tm12s_arm`
 - `planning_frame:=base`
-- `end_effector_link:=flange`
+- `end_effector_link:=tool_tip`
 - `allowed_planning_time:=5.0`
 - `num_planning_attempts:=5`
 - `max_velocity_scaling:=0.2`
@@ -37,22 +37,22 @@ The wrapper itself defines these defaults:
 - `orientation_tolerance_rad:=0.1`
 - `planning_pipeline_id:=''`
 - `planner_id:=''`
-- `workspace_config_path:=''`
+- `workspace_config_path:=<grasping_control_share>/config/crlab_table.yaml`
 
-The included `tm12s_moveit_config` launch still provides its own driver and MoveIt arguments, such as `robot_ip` and `launch_rviz`.
+The included `tm12s_soft_two_fingers_moveit_config` launch still provides its own driver and MoveIt arguments, such as `robot_ip` and `launch_rviz`.
 
 Override any of them on the command line when needed, for example
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control tm12s.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
 ```
 
 Or switch the wrapper to demo mode:
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control tm12s.launch.py use_demo:=true
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py use_demo:=true
 ```
 
 if the execution fails, try the following command
