@@ -20,7 +20,7 @@
 		rpy="0 0 0" />
 
 	<joint name="$(arg prefix)robot_base_to_tm12s_base" type="fixed">
-		<origin xyz="0 0 0" rpy="0 0 0" />
+		<origin xyz="0 0 0" rpy="0 0 0.785" />
 		<parent link="$(arg prefix)tm12s_base_link" />
 		<child link="$(arg prefix)base" />
 	</joint>

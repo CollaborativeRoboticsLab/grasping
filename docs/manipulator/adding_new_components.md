@@ -23,6 +23,7 @@ Currently we have,
 | Description | Manipulator and Gripper |
 |-------------|------------------------|
 | `ur10-soft-two-fingers.urdf.xacro` | UR10 manipulator and the softtwo-finger gripper |
+| `tm12s-soft-two-fingers.urdf.xacro` | TM12S manipulator and the softtwo-finger gripper |
 
 ## Updating the MoveIt configuration
 
@@ -40,16 +41,16 @@ To create a new MoveIt configuration package using the MoveIt Setup Assistant, f
 
 ```bash
 colcon build
-source install/setup.bash
 ```
 
-1. Open the MoveIt Setup Assistant by running the following command in your terminal:
+2. Open the MoveIt Setup Assistant by running the following command in your terminal:
 
 ```bash
+source install/setup.bash
 ros2 launch moveit_setup_assistant setup_assistant.launch.py
 ```  
 
-2. Follow the instructions [here](https://moveit.picknik.ai/main/doc/examples/setup_assistant/setup_assistant_tutorial.html) to complete the setup.
+3. Follow the instructions [here](https://moveit.picknik.ai/main/doc/examples/setup_assistant/setup_assistant_tutorial.html) to complete the setup.
 
 
 Recommended naming convention for the MoveIt configuration packages is:
@@ -65,6 +66,7 @@ Currently we have,
 | Description | MoveIt Configuration Package | Manipulator and Gripper |
 |-------------|-------------------------------|------------------------|
 | `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config` | UR10 manipulator and the softtwo-finger gripper |
+| `tm12s-soft-two-fingers.urdf.xacro` | `tm12s_soft_two_fingers_moveit_config` | TM12S manipulator and the softtwo-finger gripper |
 
 ## Testing the new setup
 
@@ -74,6 +76,14 @@ Use the demonstration launch files to test the new setup. You can create a new l
 colcon build
 source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config demo.launch.py
+```
+
+or for the TM12S manipulator with soft two-finger gripper
+
+```bash
+colcon build
+source install/setup.bash
+ros2 launch tm12s_soft_two_fingers_moveit_config demo.launch.py
 ```
 
 If the MoveIt Setup Assistant generated only fake-hardware oriented file, you might have to update `ur.ros2_control.xacro`, `ur.urdf.xacro` and other files to match.
@@ -90,7 +100,8 @@ Currently we have,
 
 | Description | Launch File | Manipulator and Gripper |
 |-------------|-------------|------------------------|
-| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | UR10 manipulator and the softtwo-finger gripper |
+| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | UR10 manipulator and the soft two-finger gripper |
+| `tm12s-soft-two-fingers.urdf.xacro` | `tm12s_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | TM12S manipulator and the soft two-finger gripper |
 
 To create a new launch file, you can copy an existing one and modify it to use the new MoveIt configuration and the combined description.
 
@@ -118,5 +129,22 @@ source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
 
-### To test the gripper open and close
+### TM12S with soft two finger gripper
 
+```bash
+colcon build
+source install/setup.bash
+ros2 launch tm12s_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
+```
+
+### To test the gripper actions, you can use the following commands:
+
+```bash
+source install/setup.bash
+ros2 action send_goal /open_gripper grasping_interfaces/action/GripperCommand "{command: {position: 0.08, max_effort: 5.0}}"
+```
+
+```bash
+source install/setup.bash
+ros2 action send_goal /close_gripper grasping_interfaces/action/GripperCommand "{command: {position: 0.0, max_effort: 5.0}}"
+``  

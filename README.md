@@ -21,13 +21,20 @@ In this grasping framework, we evaluate different gripper types. Due to this we 
 
 ### Arm Controller
 
-In this grasping framework, we utilize the ur10 manipulator. Instructions related to setup, configuration and calibration are in the linked files.
+In this grasping framework, we utilize the UR10 manipulator and TM12s manipulator. Instructions related to setup, configuration and calibration are in the linked files.
 
-- [UR10 and Devcontainer connection](./docs/manipulator/connection.md)
-- [UR10 calibration](./docs/manipulator/calibration.md)
-- [UR10 startup](./docs/manipulator/universal.md)
-- [UR10 TF frames for gripper compatibility](./docs/manipulator/tf_frames.md)
-- [UR10 attaching new gripper and components](./docs/manipulator/adding_new_components.md)
+**UR10 Manipulator**
+- [UR10 and Devcontainer connection](./docs/manipulator/ur10_connection.md)
+- [UR10 calibration](./docs/manipulator/ur10_calibration.md)
+- [UR10 tf frames for gripper compatibility](./docs/manipulator/ur10_tf_frames.md)
+- [UR10 startup](./docs/manipulator/ur10_startup.md)
+
+**TM12S Manipulator**
+- [TM12S and Devcontainer connection](./docs/manipulator/tm12s_connection.md)
+- [TM12S tf frames for gripper compatibility](./docs/manipulator/tm12s_tf_frames.md)
+
+**Common**
+- [Attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 - [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
 
 ### Arm Control and Workspace Creation

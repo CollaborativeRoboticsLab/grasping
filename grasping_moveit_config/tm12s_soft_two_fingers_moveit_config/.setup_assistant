@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: grasping_description
+    relative_path: xacro/tm12s_soft_two_fingers/tm12s-soft-tiw-fingers.urdf.xacro
+  srdf:
+    relative_path: config/tm12s_soft_two_fingers.srdf
+  package_settings:
+    author_name: Kalana Ratnayake
+    author_email: kalanaratnayake95@gmail.com
+    generated_timestamp: 1784167015
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="tm12s_soft_two_fingers">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import tm12s_soft_two_fingers urdf file -->
+    <xacro:include filename="$(find grasping_description)/xacro/tm12s_soft_two_fingers/tm12s-soft-tiw-fingers.urdf.xacro" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="tm12s_soft_two_fingers.ros2_control.xacro" />
+
+
+    <xacro:tm12s_soft_two_fingers_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

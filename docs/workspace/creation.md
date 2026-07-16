@@ -196,11 +196,15 @@ If you do not override `workspace_config_path`, `workspace_creation` starts from
 
 ## Usage Commands
 
-- Start the ur10 arm with gripper in servo mode. As an example,
+- Start the ur10 arm or tm12s arm with gripper in servo mode. As an example,
 
 ```bash
 source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py launch_servo:=true
+
+# or for tm12s
+source install/setup.bash
+ros2 launch tm12s_soft_two_fingers_moveit_config hardware_with_moveit.launch.py launch_servo:=true
 ```
 
 - Start workspace calibration:

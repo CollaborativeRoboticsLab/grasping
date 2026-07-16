@@ -11,6 +11,11 @@ source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py launch_servo:=true
 ```
 
+```bash
+source install/setup.bash
+ros2 launch tm12s_soft_two_fingers_moveit_config hardware_with_moveit.launch.py launch_servo:=true
+```
+
 That launch:
 
 - starts the UR driver and MoveIt
