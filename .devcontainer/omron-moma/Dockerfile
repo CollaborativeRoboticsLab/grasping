@@ -53,8 +53,9 @@ RUN apt-get update && \
 WORKDIR /home/ubuntu/colcon_ws/src/
 
 RUN git clone https://github.com/CollaborativeRoboticsLab/tmr_ros2.git -b humble
-RUN git clone https://github.com/CollaborativeRoboticsLab/omron_base.git -b humble
+RUN git clone --recurse-submodules https://github.com/CollaborativeRoboticsLab/omron_amr.git -b humble
 RUN git clone https://github.com/CollaborativeRoboticsLab/omron_moma.git -b humble
+
 
 ############################################################################
 ####        Install grippers packages
