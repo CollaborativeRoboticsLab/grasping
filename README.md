@@ -33,6 +33,10 @@ In this grasping framework, we utilize the UR10 manipulator and TM12s manipulato
 - [TM12S and Devcontainer connection](./docs/manipulator/tm12s_connection.md)
 - [TM12S tf frames for gripper compatibility](./docs/manipulator/tm12s_tf_frames.md)
 
+**LD250 &TM12x Mobile Manipulator**
+- [LD250 & TM12X and Devcontainer connection](./docs/manipulator/ld250_tm12x_connection.md)
+- [LD250 & TM12X tf frames for gripper compatibility](./docs/manipulator/ld250_tm12x_tf_frames.md)
+
 **Common**
 - [Attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 - [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
