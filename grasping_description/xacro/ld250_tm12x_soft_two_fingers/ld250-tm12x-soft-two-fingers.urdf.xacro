@@ -11,9 +11,11 @@
 	<xacro:arg name="arm_base_link" default="base_link"/>
 	<xacro:arg name="controlbox_mesh_pkg" default="moma_description"/>
 
-	<xacro:include filename="$(find moma_description)/xacro/ld250_tm12x.urdf.xacro" />
+	<xacro:include filename="$(find moma_description)/xacro/ld250_tm12x_macro.urdf.xacro" />
 	<xacro:include filename="$(find grasping_description)/xacro/tmee-spacer/tmee-spacer.urdf.xacro" />
+	<xacro:include filename="$(find grasping_description)/xacro/camera/camera-mount.urdf.xacro" />
 	<xacro:include filename="$(find gripper_description)/xacro/two-finger-gripper.urdf.xacro" />
+	<xacro:include filename="$(find realsense2_description)/urdf/_d435.urdf.xacro" />
 
 	<xacro:ld250_tm12x_robot
 		ns="$(arg ns)"
@@ -30,10 +32,20 @@
 		xyz="0 0 0"
 		rpy="0 0 0" />
 
-	<xacro:two_finger_gripper
+	<xacro:camera_mount
 		parent="$(arg arm_prefix)tmee_spacer_link"
+		prefix="$(arg arm_prefix)"
+		xyz="0 0 0.055"
+		rpy="0 0 3.14" />
+
+	<xacro:two_finger_gripper
+		parent="$(arg arm_prefix)camera_mount_link"
 		prefix="$(arg arm_prefix)"
 		xyz="0 0 0.008"
 		rpy="0 0 0" />
+
+	<xacro:sensor_d435 parent="$(arg arm_prefix)camera_mount_link" name="$(arg arm_prefix)camera">
+		<origin xyz="0 -0.085 0.043" rpy="0 -1.57 1.57" />
+	</xacro:sensor_d435>
 
 </robot>
