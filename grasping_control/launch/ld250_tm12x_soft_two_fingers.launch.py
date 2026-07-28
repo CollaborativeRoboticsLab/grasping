@@ -5,26 +5,71 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import AndSubstitution, LaunchConfiguration, NotSubstitution
 from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
 	grasping_control_share = get_package_share_directory('grasping_control')
-	tm12s_moveit_config_share = get_package_share_directory('tm12s_soft_two_fingers_moveit_config')
+	ld250_tm12x_moveit_config_share = get_package_share_directory(
+		'ld250_tm12x_soft_two_fingers_moveit_config'
+	)
+	moma_ros_share = get_package_share_directory('moma_ros')
+
+	base_hardware = IncludeLaunchDescription(
+		PythonLaunchDescriptionSource(
+			str(Path(moma_ros_share) / 'launch' / 'ld250_tm12x' / 'ld250_tm12x.hardware.launch.py')
+		),
+		launch_arguments={
+			'tm_robot_ip': LaunchConfiguration('tm_robot_ip'),
+			'tm_use_simulation': LaunchConfiguration('tm_use_simulation'),
+			'use_arm': 'false',
+			'use_base': 'true',
+			'robot_description_override': 'false',
+		}.items(),
+		condition=IfCondition(
+			AndSubstitution(
+				LaunchConfiguration('use_base'),
+				NotSubstitution(LaunchConfiguration('use_demo')),
+			)
+		),
+	)
 
 	hardware_with_moveit = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
-			str(Path(tm12s_moveit_config_share) / 'launch' / 'hardware_with_moveit.launch.py')
+			str(
+				Path(ld250_tm12x_moveit_config_share) / 'launch' / 'hardware_with_moveit.launch.py'
+			)
 		),
+		launch_arguments={
+			'tm_robot_ip': LaunchConfiguration('tm_robot_ip'),
+			'tm_use_simulation': LaunchConfiguration('tm_use_simulation'),
+			'no_logging': LaunchConfiguration('no_logging'),
+			'launch_servo': LaunchConfiguration('launch_servo'),
+		}.items(),
 		condition=UnlessCondition(LaunchConfiguration('use_demo')),
 	)
 
 	demo = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
-			str(Path(tm12s_moveit_config_share) / 'launch' / 'demo.launch.py')
+			str(Path(ld250_tm12x_moveit_config_share) / 'launch' / 'demo.launch.py')
 		),
 		condition=IfCondition(LaunchConfiguration('use_demo')),
+	)
+
+	nav2 = IncludeLaunchDescription(
+		PythonLaunchDescriptionSource(
+			str(Path(moma_ros_share) / 'launch' / 'ld250_tm12x' / 'ld250_tm12x.nav2.launch.py')
+		),
+		condition=IfCondition(
+			AndSubstitution(
+				LaunchConfiguration('use_nav2'),
+				AndSubstitution(
+					LaunchConfiguration('use_base'),
+					NotSubstitution(LaunchConfiguration('use_demo')),
+				),
+			)
+		),
 	)
 
 	motion_execution_node = Node(
@@ -55,10 +100,16 @@ def generate_launch_description() -> LaunchDescription:
 	return LaunchDescription(
 		[
 			DeclareLaunchArgument('use_demo', default_value='false'),
+			DeclareLaunchArgument('use_base', default_value='false'),
+			DeclareLaunchArgument('use_nav2', default_value='false'),
+			DeclareLaunchArgument('tm_robot_ip', default_value=''),
+			DeclareLaunchArgument('tm_use_simulation', default_value='false'),
+			DeclareLaunchArgument('no_logging', default_value='false'),
+			DeclareLaunchArgument('launch_servo', default_value='false'),
 			DeclareLaunchArgument('arm_action_name', default_value='move_arm_to_pose'),
 			DeclareLaunchArgument('move_group_action_name', default_value='move_action'),
-			DeclareLaunchArgument('planning_group', default_value='tm12s_arm'),
-			DeclareLaunchArgument('planning_frame', default_value='base'),
+			DeclareLaunchArgument('planning_group', default_value='tmr_arm_with_base'),
+			DeclareLaunchArgument('planning_frame', default_value='base_link'),
 			DeclareLaunchArgument('end_effector_link', default_value='tool_tip'),
 			DeclareLaunchArgument('allowed_planning_time', default_value='5.0'),
 			DeclareLaunchArgument('num_planning_attempts', default_value='5'),
@@ -72,8 +123,10 @@ def generate_launch_description() -> LaunchDescription:
 				'workspace_config_path',
 				default_value=str(Path(grasping_control_share) / 'config' / 'crlab_table.yaml'),
 			),
+			base_hardware,
 			demo,
 			hardware_with_moveit,
+			nav2,
 			motion_execution_node,
 		]
 	)

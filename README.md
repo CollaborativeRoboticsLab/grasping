@@ -1,6 +1,6 @@
 # Grasping Stack
 
-This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) with the help of a [RealSense Camera](https://github.com/realsenseai/realsense-ros). 
+This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) and [TM robots](https://www.techmanrobot.com/) using [RealSense Camera](https://github.com/realsenseai/realsense-ros) and [custom grippers](https://github.com/CollaborativeRoboticsLab/grippers)
 
 ## System Architecture
 
@@ -19,9 +19,9 @@ In this grasping framework, we evaluate different gripper types. Due to this we 
 - [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
 - [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
 
-### Arm Controller
+### Manipulator
 
-In this grasping framework, we utilize the UR10 manipulator and TM12s manipulator. Instructions related to setup, configuration and calibration are in the linked files.
+In this grasping framework, we have tested with the UR10, TM12s manipulators and LD250 & TM12x mobile manipulator. Instructions related to setup, configuration and calibration are in the linked files.
 
 **UR10 Manipulator**
 - [UR10 and Devcontainer connection](./docs/manipulator/ur10_connection.md)
@@ -41,7 +41,7 @@ In this grasping framework, we utilize the UR10 manipulator and TM12s manipulato
 - [Attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 - [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
 
-### Arm Control and Workspace Creation
+### Manipulator Control and Workspace Creation
 
 This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
 
@@ -55,7 +55,6 @@ An external stack is typically used to detect or calculate a grasp pose, and thi
 
 - [Anygrasp based Grasping pipeline](https://github.com/CollaborativeRoboticsLab/anygrasp_grasping)
 
-
 ## Starting the camera
 
 Use the following command to start the realsense D435 camera.
@@ -67,16 +66,23 @@ ros2 launch grasping_camera d435.launch.py
 
 ## Start the UR10 Manipulator and Gripper with MoveIt
 
-### For `UR10 only`
-
-```bash
-source install/setup.bash
-ros2 launch grasping_control ur10.launch.py
-```
-
 ### For `UR10 with soft two-finger gripper`
 
 ```bash
 source install/setup.bash
 ros2 launch grasping_control ur10_soft_two_fingers.launch.py
 ```
+
+### For 'TM12s with soft two-finger gripper'
+
+```bash
+source install/setup.bash
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py
+```
+
+### For 'LD250 & TM12X with soft two-finger gripper'
+
+```bash
+source install/setup.bash
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py
+``` 

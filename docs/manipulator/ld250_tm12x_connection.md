@@ -30,8 +30,10 @@ Then launch the combined manipulator stack with:
 
 ```bash
 source install/setup.bash
-ros2 launch ld250_tm12x_soft_two_fingers_moveit_config hardware_with_moveit.launch.py tm_robot_ip:=<robot_controller_ip>
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py tm_robot_ip:=<robot_controller_ip>
 ```
+
+The wrapper forwards `tm_robot_ip`, `tm_use_simulation`, `no_logging`, and `launch_servo` to the underlying `ld250_tm12x_soft_two_fingers_moveit_config` hardware launch.
 
 If you are launching the full mobile manipulator platform instead, the top-level `moma_ros` launch forwards the same argument:
 

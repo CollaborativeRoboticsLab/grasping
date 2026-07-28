@@ -12,14 +12,16 @@ We use an `ld250_tm12x` mobile manipulator with the TM12X arm mounted on the LD2
 
 ## Start the Manipulator MoveIt Stack
 
-Use the following command to start the combined LD250 + TM12X + gripper MoveIt stack:
+Use the following command to start the combined LD250 + TM12X + gripper MoveIt stack through the `grasping_control` wrapper:
 
 ```bash
 source install/setup.bash
-ros2 launch ld250_tm12x_soft_two_fingers_moveit_config hardware_with_moveit.launch.py tm_robot_ip:=<robot_controller_ip>
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py tm_robot_ip:=<robot_controller_ip>
 ```
 
-This launch starts the TM driver, robot state publisher, MoveIt, RViz, ros2_control, and the combined arm and gripper controllers for the `ld250_tm12x_soft_two_fingers` model.
+This wrapper includes `ld250_tm12x_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
+
+It can also include the LD250 base hardware and Nav2 stack from `moma_ros` when requested, while still keeping the arm + gripper + MoveIt path as the default behavior.
 
 The launch file defines these primary arguments:
 
@@ -27,6 +29,8 @@ The launch file defines these primary arguments:
 - `tm_use_simulation:=false`
 - `no_logging:=false`
 - `launch_servo:=false`
+- `use_base:=false`
+- `use_nav2:=false`
 
 The combined MoveIt configuration uses:
 
@@ -38,7 +42,7 @@ Enable Servo if you want jogging through the forward position controller:
 
 ```bash
 source install/setup.bash
-ros2 launch ld250_tm12x_soft_two_fingers_moveit_config hardware_with_moveit.launch.py \
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py \
 	tm_robot_ip:=<robot_controller_ip> \
 	launch_servo:=true
 ```
@@ -47,35 +51,22 @@ For demo mode without hardware, use:
 
 ```bash
 source install/setup.bash
-ros2 launch ld250_tm12x_soft_two_fingers_moveit_config demo.launch.py
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py use_demo:=true
 ```
 
-## Start the Full Mobile Manipulator Stack
-
-If you want the LD250 base, TM12X arm, MoveIt, Nav2, and RViz together, use the top-level platform bringup:
+To start the full mobile manipulator from the same high-level launch, enable the base and Nav2 explicitly:
 
 ```bash
 source install/setup.bash
-ros2 launch moma_ros ld250_tm12x.launch.py tm_robot_ip:=<robot_controller_ip>
+ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py \
+	tm_robot_ip:=<robot_controller_ip> \
+	use_base:=true \
+	use_nav2:=true
 ```
 
-This launch defines these top-level defaults:
-
-- `tm_use_simulation:=false`
-- `tm_robot_ip:=192.168.1.2`
-- `use_rviz:=auto`
-- `use_moveit:=true`
-- `use_nav2:=true`
-
-The included hardware launch also supports these lower-level options when you launch it directly:
-
-- `use_arm:=true`
-- `use_base:=true`
-- `robot_description_override:=true`
+With `use_base:=true`, the wrapper reuses the LD250 base hardware launch from `moma_ros` and keeps `use_arm:=false` on that included launch so the TM arm hardware is still owned only by the grasping stack.
 
 ## Notes
-
-The manipulator-only launch above is the correct entrypoint for the new `ld250_tm12x_soft_two_fingers_moveit_config` package.
 
 If controller activation fails during physical bringup, check the active controllers in `/controller_manager` and switch the required combined arm controller explicitly.
 
