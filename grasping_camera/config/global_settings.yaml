@@ -1,3 +1,0 @@
-# grasping_camera global settings
-# If true, launch realsense2_camera as a LifecycleNode.
-use_lifecycle_node: false

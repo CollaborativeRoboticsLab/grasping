@@ -6,12 +6,6 @@ This package provides grasping functionality for [UR robots](https://www.univers
 
 ![System Architecture](./docs/images/system.png)
 
-### Camera Driver
-
-Camera setup, configuration, and customization are documented in the linked file. The current supported device is:
-
-- [Realsense Camera](./docs/camera/realsense.md)
-
 ### Gripper Controller
 
 In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
