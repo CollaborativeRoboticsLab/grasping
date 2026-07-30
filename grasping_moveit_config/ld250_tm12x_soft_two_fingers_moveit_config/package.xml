@@ -2,13 +2,13 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>ld250_tm12x_soft_two_fingers_moveit_config</name>
-  <version>0.3.0</version>
+  <version>0.1.0</version>
   <description>
      An automatically generated package with all the configuration and launch files for using the ld250_tm12x_soft_two_fingers with the MoveIt Motion Planning Framework
   </description>
-  <maintainer email="kalanaratnayake95@gmail.com">Kalana Ratnayake</maintainer>
+  <maintainer email="kalanaratnayake95@gmail.com">ubuntu</maintainer>
 
-  <license>BSD</license>
+  <license>MIT</license>
 
   <url type="website">http://moveit.ros.org/</url>
   <url type="bugtracker">https://github.com/ros-planning/moveit2/issues</url>
