@@ -134,7 +134,7 @@ def launch_setup(
         "moveit_simple_controller_manager": {
             "controller_names": [
                 selected_joint_controller,
-                "soft_two_fingers_gripper_controller",
+                "gripper_command",
             ],
             selected_joint_controller: {
                 "action_ns": "follow_joint_trajectory",
@@ -149,10 +149,11 @@ def launch_setup(
                     "wrist_3_joint",
                 ],
             },
-            "soft_two_fingers_gripper_controller": {
+            "gripper_command": {
                 "type": "GripperCommand",
                 "joints": ["gripper_planar_5", "gripper_planar_4"],
-                "action_ns": "gripper_cmd",
+                "parallel": True,
+                "action_ns": "",
                 "default": True,
             },
         }

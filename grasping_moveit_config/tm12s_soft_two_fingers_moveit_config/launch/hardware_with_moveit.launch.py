@@ -22,6 +22,8 @@ def generate_launch_description():
     tm_use_simulation = LaunchConfiguration("tm_use_simulation")
     no_logging = LaunchConfiguration("no_logging")
     launch_servo = LaunchConfiguration("launch_servo")
+    motor_params_file = LaunchConfiguration("motor_params_file")
+    gripper_params_file = LaunchConfiguration("gripper_params_file")
 
     moveit_config = MoveItConfigsBuilder(
         "tm12s_soft_two_fingers",
@@ -30,6 +32,7 @@ def generate_launch_description():
 
     package_share = get_package_share_directory("tm12s_soft_two_fingers_moveit_config")
     tm_driver_share = get_package_share_directory("tm_driver")
+    gripper_ros_share = get_package_share_directory("gripper_ros")
     ros2_controllers_path = os.path.join(package_share, "config", "ros2_controllers.yaml")
     rviz_config_file = os.path.join(package_share, "config", "moveit.rviz")
 
@@ -152,16 +155,6 @@ def generate_launch_description():
         ],
     )
 
-    gripper_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "soft_two_fingers_gripper_controller",
-            "--controller-manager",
-            "/controller_manager",
-        ],
-    )
-
     tm_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(tm_driver_share, "launch", "tm_bringup.launch.py")
@@ -173,13 +166,37 @@ def generate_launch_description():
         }.items(),
     )
 
+    gripper_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(gripper_ros_share, "launch", "gripper_soft_two_fingers.launch.py")
+        ),
+        launch_arguments={
+            "motor_params_file": motor_params_file,
+            "gripper_params_file": gripper_params_file,
+        }.items(),
+    )
+
     return LaunchDescription(
         [
             declare_robot_ip,
             declare_use_simulation,
             declare_no_logging,
             declare_launch_servo,
+            DeclareLaunchArgument(
+                "motor_params_file",
+                default_value=os.path.join(gripper_ros_share, "config", "servos", "dynamixel.yaml"),
+            ),
+            DeclareLaunchArgument(
+                "gripper_params_file",
+                default_value=os.path.join(
+                    gripper_ros_share,
+                    "config",
+                    "grippers",
+                    "soft_two_finger_dynamixel.yaml",
+                ),
+            ),
             tm_driver_launch,
+            gripper_launch,
             rviz_node,
             static_tf,
             robot_state_publisher,
@@ -189,6 +206,5 @@ def generate_launch_description():
             joint_state_broadcaster_spawner,
             tm_arm_controller_spawner,
             forward_position_controller_spawner,
-            gripper_controller_spawner,
         ]
     )
