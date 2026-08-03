@@ -24,14 +24,21 @@ At runtime the stack usually depends on four subsystems:
 
 The shared action interface lives in the `grasping_msgs` package.
 
-Action:
+Grasp-pose action:
 
 - `grasping_msgs/action/MoveToPose`
 - Goal: `geometry_msgs/PoseStamped target_pose`
 - Result: `bool success`, `string message`
 - Feedback: `string state`
 
-The goal stays intentionally minimal. Clients send only a target pose, and `motion_execution_node` resolves transforms, workspace configuration, and MoveIt planning from its own parameters.
+Named-pose action:
+
+- `grasping_msgs/action/MoveToNamedPose`
+- Goal: `string pose_name`
+- Result: `bool success`, `string message`
+- Feedback: `string state`
+
+The grasp-pose goal stays intentionally minimal. Clients send only a target pose, and `motion_execution_node` resolves transforms, workspace configuration, and MoveIt planning from its own parameters. Named-pose goals load preconfigured `[x, y, z, roll, pitch, yaw]` values from ROS parameters supplied by `motion_config.yaml`.
 
 
 ## Static TF Assumptions
@@ -40,16 +47,24 @@ AnyGrasp returns `PoseStamped` results in the source point-cloud frame, and `mot
 
 Use the static camera transform only when the camera is rigidly mounted to the end effector. If the camera is mounted elsewhere, provide the correct TF in your robot setup instead of relying on an application-layer launch file.
 
-## Launch Arguments
+## Motion Configuration
 
-### Motion-Execution Arguments
+The shared `motion_execution.launch.py` launch file starts `motion_execution_node`, loads `motion_config.yaml`, resolves `workspace_file`, and loads the selected workspace YAML as a ROS parameter file.
+
+The only shared motion-execution launch argument is:
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `workspace_file` | `workspace_empty.yaml` | Workspace YAML selected from an absolute path, the colcon workspace root, or `grasping_control/config`; falls back to `workspace_empty.yaml`. |
+
+Motion behavior is configured through `motion_config.yaml`:
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `move_group_action_name` | `move_action` | Name of the MoveIt `MoveGroup` action server contacted by `motion_execution_node`. |
 | `planning_group` | `manipulator` | MoveIt planning group used when building the motion request. |
 | `planning_frame` | `base_link` | Target frame into which incoming poses are transformed before planning. |
-| `end_effector_link` | `tool0` | Link constrained to the requested pose in the generated goal constraints. |
+| `end_effector_link` | `tcp` for soft-gripper launches | Link constrained to the requested pose in the generated goal constraints. |
 | `allowed_planning_time` | `5.0` | Maximum planning time in seconds for each MoveIt request. |
 | `num_planning_attempts` | `5` | Number of planning attempts MoveIt may use before reporting failure. |
 | `max_velocity_scaling` | `0.2` | Velocity scaling factor applied to the generated motion plan. |
@@ -58,5 +73,6 @@ Use the static camera transform only when the camera is rigidly mounted to the e
 | `orientation_tolerance_rad` | `0.1` | Angular tolerance in radians used for the end-effector orientation constraint. |
 | `planning_pipeline_id` | `''` | Optional MoveIt planning pipeline override. Leave empty to use the MoveIt default. |
 | `planner_id` | `''` | Optional planner override within the selected planning pipeline. Leave empty to use the default planner. |
-| `workspace_config_path` | `''` | Optional path to the workspace YAML used for collision scene setup. Leave empty to use the standard workspace resolution behavior. |
+
+Named poses are triggered through `MoveToNamedPose`, for example with `pose_name=workspace_center_pose`, `pose_name=pre_grasp_pose`, or `pose_name=post_grasp_pose`.
 

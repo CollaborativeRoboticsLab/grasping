@@ -11,6 +11,7 @@ find_package(rosidl_default_generators REQUIRED)
 
 set(action_files
   "action/MoveToPose.action"
+  "action/MoveToNamedPose.action"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

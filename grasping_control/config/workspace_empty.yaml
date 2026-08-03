@@ -1,7 +1,12 @@
-version: 1
-updated_at: null
-base_frame: world
-tool_frame: tool_tip
-ground_plane_z: 0.0
-workspace_area: null
-objects: []
+
+
+motion_execution_node:
+  ros__parameters:
+    workspace:
+      version: 1
+      updated_at: '2026-08-03T02:16:05.443265+00:00'
+      base_frame: world
+      tool_frame: tool_tip
+      ground_plane_z: 0.0
+    workspace_area: null
+    workspace_objects: []

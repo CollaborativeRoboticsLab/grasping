@@ -12,6 +12,9 @@ from shape_msgs.msg import SolidPrimitive
 from grasping_control.common import Quaternion, dict_to_pose, normalize_quaternion, write_yaml_dict
 
 
+WORKSPACE_PARAMETER_NODE = 'motion_execution_node'
+
+
 def iso_timestamp() -> str:
 	"""!
 	@brief Return the current UTC time as an ISO-8601 string.
@@ -147,6 +150,99 @@ def prepare_workspace_config(
 	return prepared
 
 
+def workspace_config_from_document(
+	document: Dict[str, Any],
+	default_config: Dict[str, Any],
+) -> Dict[str, Any]:
+	"""!
+	@brief Convert a ROS parameter workspace YAML document into runtime config.
+
+	@param document Parsed YAML document.
+	@param default_config Default workspace configuration used for missing values.
+	@return Runtime workspace configuration dictionary.
+	"""
+	if not isinstance(document, dict):
+		return deepcopy(default_config)
+
+	parameters = _workspace_parameter_mapping(document)
+	if parameters is None:
+		return deepcopy(default_config)
+
+	return workspace_config_from_ros_parameters(parameters, default_config)
+
+
+def workspace_config_from_ros_parameters(
+	parameters: Dict[str, Any],
+	default_config: Dict[str, Any],
+) -> Dict[str, Any]:
+	"""!
+	@brief Convert motion_execution_node workspace parameters into runtime config.
+
+	@param parameters Mapping from the `ros__parameters` section.
+	@param default_config Default workspace configuration used for missing values.
+	@return Runtime workspace configuration dictionary.
+	"""
+	workspace = _nested_mapping(parameters, 'workspace')
+	workspace_config: Dict[str, Any] = {
+		'version': int(_nested_value(parameters, 'workspace.version', workspace.get('version', default_config.get('version', 1)))),
+		'updated_at': str(_nested_value(parameters, 'workspace.updated_at', workspace.get('updated_at', default_config.get('updated_at', iso_timestamp())))),
+		'base_frame': str(_nested_value(parameters, 'workspace.base_frame', workspace.get('base_frame', default_config.get('base_frame', 'world')))),
+		'tool_frame': str(_nested_value(parameters, 'workspace.tool_frame', workspace.get('tool_frame', default_config.get('tool_frame', 'tool_tip')))),
+		'ground_plane_z': float(_nested_value(parameters, 'workspace.ground_plane_z', workspace.get('ground_plane_z', default_config.get('ground_plane_z', 0.0)))),
+		'workspace_area': None,
+		'objects': [],
+	}
+
+	workspace_area = _workspace_area_from_parameters(parameters)
+	if workspace_area is not None:
+		workspace_config['workspace_area'] = workspace_area
+
+	workspace_config['objects'] = _workspace_objects_from_parameters(parameters)
+	return workspace_config
+
+
+def workspace_config_to_ros_parameters_document(
+	workspace_config: Dict[str, Any],
+	node_name: str = WORKSPACE_PARAMETER_NODE,
+) -> Dict[str, Any]:
+	"""!
+	@brief Convert runtime workspace config into ROS parameter YAML document shape.
+
+	@param workspace_config Runtime workspace configuration dictionary.
+	@param node_name Node name that should receive the parameters.
+	@return ROS parameter YAML document.
+	"""
+	parameters: Dict[str, Any] = {
+		'workspace': {
+			'version': int(workspace_config.get('version', 1)),
+			'updated_at': str(workspace_config.get('updated_at', iso_timestamp())),
+			'base_frame': str(workspace_config.get('base_frame', 'world')),
+			'tool_frame': str(workspace_config.get('tool_frame', 'tool_tip')),
+			'ground_plane_z': float(workspace_config.get('ground_plane_z', 0.0)),
+		},
+		'workspace_area': None,
+		'workspace_objects': [],
+		'workspace_object': {},
+	}
+
+	workspace_area = workspace_config.get('workspace_area')
+	if isinstance(workspace_area, dict):
+		parameters['workspace_area'] = _workspace_area_to_parameters(workspace_area)
+
+	for workspace_object in workspace_config.get('objects', []):
+		if not isinstance(workspace_object, dict):
+			continue
+		object_name = str(workspace_object.get('name', 'unnamed'))
+		parameters['workspace_objects'].append(object_name)
+		parameters['workspace_object'][object_name] = _workspace_object_to_parameters(workspace_object)
+
+	return {
+		node_name: {
+			'ros__parameters': parameters,
+		}
+	}
+
+
 def _prepare_workspace_area(workspace_area: Dict[str, Any]) -> Dict[str, Any]:
 	"""!
 	@brief Reduce a workspace-area entry to the persisted fields used after calibration.
@@ -224,8 +320,239 @@ def write_workspace_config(
 	@return The normalized configuration that was written.
 	"""
 	prepared = prepare_workspace_config(workspace_config, base_frame, tool_frame, ground_plane_z)
-	write_yaml_dict(path, prepared)
+	write_yaml_dict(path, workspace_config_to_ros_parameters_document(prepared))
 	return prepared
+
+
+def _workspace_parameter_mapping(document: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+	"""Return the ros__parameters mapping when a workspace document uses ROS params."""
+	node_config = document.get(WORKSPACE_PARAMETER_NODE)
+	if isinstance(node_config, dict):
+		parameters = node_config.get('ros__parameters')
+		if isinstance(parameters, dict):
+			return parameters
+
+	parameters = document.get('ros__parameters')
+	if isinstance(parameters, dict):
+		return parameters
+	return None
+
+
+def _workspace_area_from_parameters(parameters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+	"""Build a workspace_area entry from ROS parameters when one is configured."""
+	workspace_area = _nested_value(parameters, 'workspace_area', None)
+	if workspace_area is None:
+		return None
+	if isinstance(workspace_area, dict) and not bool(workspace_area.get('enabled', True)):
+		return None
+
+	geometry = _nested_mapping(parameters, 'workspace_area.geometry')
+	if not geometry and isinstance(workspace_area, dict):
+		geometry = workspace_area.get('geometry', {}) if isinstance(workspace_area.get('geometry'), dict) else {}
+	if not geometry:
+		return None
+
+	return {'geometry': _geometry_from_parameter_mapping(geometry, is_workspace_area=True)}
+
+
+def _workspace_objects_from_parameters(parameters: Dict[str, Any]) -> List[Dict[str, Any]]:
+	"""Build workspace object entries from ROS parameters."""
+	object_names = _nested_value(parameters, 'workspace_objects', [])
+	if not isinstance(object_names, list):
+		return []
+
+	objects: List[Dict[str, Any]] = []
+	workspace_object_map = _nested_mapping(parameters, 'workspace_object')
+	for object_name_value in object_names:
+		object_name = str(object_name_value).strip()
+		if not object_name:
+			continue
+		object_config = workspace_object_map.get(object_name, {})
+		if not isinstance(object_config, dict):
+			continue
+		geometry_config = object_config.get('geometry', {})
+		if not isinstance(geometry_config, dict):
+			continue
+		workspace_object = {
+			'name': object_name,
+			'geometry': _geometry_from_parameter_mapping(geometry_config, is_workspace_area=False),
+		}
+		shape = object_config.get('shape')
+		if shape is not None:
+			workspace_object['shape'] = str(shape)
+		objects.append(workspace_object)
+	return objects
+
+
+def _geometry_from_parameter_mapping(geometry: Dict[str, Any], is_workspace_area: bool) -> Dict[str, Any]:
+	"""Convert parameter geometry arrays into runtime geometry mappings."""
+	geometry_type = str(geometry.get('type', ''))
+	dimensions = _dimensions_from_parameter_value(geometry_type, geometry.get('dimensions', []), is_workspace_area)
+	pose = _pose_from_parameter_mapping(geometry.get('pose', {}))
+	converted: Dict[str, Any] = {
+		'type': geometry_type,
+		'dimensions': dimensions,
+		'pose': pose,
+	}
+
+	corner_points = geometry.get('corner_points')
+	if isinstance(corner_points, dict):
+		converted['corner_points'] = _corner_points_from_axes(corner_points)
+	return converted
+
+
+def _dimensions_from_parameter_value(
+	geometry_type: str,
+	value: Any,
+	is_workspace_area: bool,
+) -> Dict[str, float]:
+	"""Convert dimension arrays into named dimension mappings."""
+	if isinstance(value, dict):
+		return deepcopy(value)
+	dimensions = [float(item) for item in list(value)] if isinstance(value, list) else []
+	if is_workspace_area:
+		return {
+			'side_length': dimensions[0] if len(dimensions) > 0 else 0.0,
+			'height_from_ground': dimensions[1] if len(dimensions) > 1 else 0.0,
+		}
+	if geometry_type == 'cylinder':
+		return {
+			'height': dimensions[0] if len(dimensions) > 0 else 0.0,
+			'radius': dimensions[1] if len(dimensions) > 1 else 0.0,
+		}
+	return {
+		'x': dimensions[0] if len(dimensions) > 0 else 0.0,
+		'y': dimensions[1] if len(dimensions) > 1 else 0.0,
+		'z': dimensions[2] if len(dimensions) > 2 else 0.0,
+	}
+
+
+def _pose_from_parameter_mapping(pose: Any) -> Dict[str, Any]:
+	"""Convert pose position/orientation arrays into named mappings."""
+	if not isinstance(pose, dict):
+		pose = {}
+	position = pose.get('position', [0.0, 0.0, 0.0])
+	orientation = pose.get('orientation', [0.0, 0.0, 0.0, 1.0])
+	if isinstance(position, dict) and isinstance(orientation, dict):
+		return {'position': deepcopy(position), 'orientation': deepcopy(orientation)}
+	position_values = [float(item) for item in list(position)]
+	orientation_values = [float(item) for item in list(orientation)]
+	return {
+		'position': {
+			'x': position_values[0] if len(position_values) > 0 else 0.0,
+			'y': position_values[1] if len(position_values) > 1 else 0.0,
+			'z': position_values[2] if len(position_values) > 2 else 0.0,
+		},
+		'orientation': {
+			'x': orientation_values[0] if len(orientation_values) > 0 else 0.0,
+			'y': orientation_values[1] if len(orientation_values) > 1 else 0.0,
+			'z': orientation_values[2] if len(orientation_values) > 2 else 0.0,
+			'w': orientation_values[3] if len(orientation_values) > 3 else 1.0,
+		},
+	}
+
+
+def _corner_points_from_axes(corner_points: Dict[str, Any]) -> List[Dict[str, float]]:
+	"""Convert x/y/z corner arrays into a list of point mappings."""
+	x_values = [float(item) for item in list(corner_points.get('x', []))]
+	y_values = [float(item) for item in list(corner_points.get('y', []))]
+	z_values = [float(item) for item in list(corner_points.get('z', []))]
+	count = min(len(x_values), len(y_values), len(z_values))
+	return [
+		{'x': x_values[index], 'y': y_values[index], 'z': z_values[index]}
+		for index in range(count)
+	]
+
+
+def _workspace_area_to_parameters(workspace_area: Dict[str, Any]) -> Dict[str, Any]:
+	"""Convert a runtime workspace_area entry into ROS parameter schema."""
+	geometry = workspace_area.get('geometry', {})
+	dimensions = geometry.get('dimensions', {}) if isinstance(geometry, dict) else {}
+	return {
+		'enabled': True,
+		'geometry': {
+			'type': str(geometry.get('type', 'square')),
+			'dimensions': [
+				float(dimensions.get('side_length', 0.0)),
+				float(dimensions.get('height_from_ground', 0.0)),
+			],
+			'pose': _pose_to_parameters(geometry.get('pose', {})),
+			'corner_points': _corner_points_to_axes(geometry.get('corner_points', [])),
+		},
+	}
+
+
+def _workspace_object_to_parameters(workspace_object: Dict[str, Any]) -> Dict[str, Any]:
+	"""Convert a runtime workspace object into ROS parameter schema."""
+	geometry = workspace_object.get('geometry', {})
+	geometry_type = str(geometry.get('type', ''))
+	dimensions = geometry.get('dimensions', {})
+	if geometry_type == 'cylinder':
+		dimension_values = [float(dimensions.get('height', 0.0)), float(dimensions.get('radius', 0.0))]
+	else:
+		dimension_values = [
+			float(dimensions.get('x', 0.0)),
+			float(dimensions.get('y', 0.0)),
+			float(dimensions.get('z', 0.0)),
+		]
+	return {
+		'geometry': {
+			'type': geometry_type,
+			'dimensions': dimension_values,
+			'pose': _pose_to_parameters(geometry.get('pose', {})),
+		},
+		'shape': str(workspace_object.get('shape', '')),
+	}
+
+
+def _pose_to_parameters(pose: Any) -> Dict[str, List[float]]:
+	"""Convert a runtime pose mapping into array-based ROS parameter schema."""
+	if not isinstance(pose, dict):
+		pose = {}
+	position = pose.get('position', {}) if isinstance(pose.get('position'), dict) else {}
+	orientation = pose.get('orientation', {}) if isinstance(pose.get('orientation'), dict) else {}
+	return {
+		'position': [
+			float(position.get('x', 0.0)),
+			float(position.get('y', 0.0)),
+			float(position.get('z', 0.0)),
+		],
+		'orientation': [
+			float(orientation.get('x', 0.0)),
+			float(orientation.get('y', 0.0)),
+			float(orientation.get('z', 0.0)),
+			float(orientation.get('w', 1.0)),
+		],
+	}
+
+
+def _corner_points_to_axes(corner_points: Any) -> Dict[str, List[float]]:
+	"""Convert runtime corner point mappings into x/y/z arrays."""
+	if not isinstance(corner_points, list):
+		corner_points = []
+	return {
+		'x': [float(point.get('x', 0.0)) for point in corner_points if isinstance(point, dict)],
+		'y': [float(point.get('y', 0.0)) for point in corner_points if isinstance(point, dict)],
+		'z': [float(point.get('z', 0.0)) for point in corner_points if isinstance(point, dict)],
+	}
+
+
+def _nested_mapping(parameters: Dict[str, Any], path: str) -> Dict[str, Any]:
+	"""Return a nested or dotted mapping value."""
+	value = _nested_value(parameters, path, {})
+	return value if isinstance(value, dict) else {}
+
+
+def _nested_value(parameters: Dict[str, Any], path: str, default: Any) -> Any:
+	"""Return a parameter value from either nested maps or dotted keys."""
+	if path in parameters:
+		return parameters[path]
+	value: Any = parameters
+	for part in path.split('.'):
+		if not isinstance(value, dict) or part not in value:
+			return default
+		value = value[part]
+	return value
 
 
 def build_geometry(

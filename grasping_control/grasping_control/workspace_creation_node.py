@@ -19,6 +19,7 @@ from grasping_control.workspace_utils import (
 	default_shape_definitions,
 	default_workspace_config,
 	iso_timestamp,
+	workspace_config_from_document,
 	write_workspace_config,
 )
 
@@ -104,8 +105,12 @@ class WorkspaceCreationNode(Node):
 			# Shape requirements are defined separately from object instances so adding a new
 			# primitive later only requires extending the shape definition YAML.
 			shape_definitions = load_yaml_dict(self._shape_definitions_path, default_shape_definitions())
-			workspace_config = load_yaml_dict(
+			raw_workspace_config = load_yaml_dict(
 				self._workspace_config_path,
+				default_workspace_config(self._base_frame, self._tool_frame, self._ground_plane_z),
+			)
+			workspace_config = workspace_config_from_document(
+				raw_workspace_config,
 				default_workspace_config(self._base_frame, self._tool_frame, self._ground_plane_z),
 			)
 			workspace_config.setdefault('workspace_area', None)

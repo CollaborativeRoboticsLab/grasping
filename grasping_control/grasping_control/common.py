@@ -185,7 +185,9 @@ def transform_pose_to_frame(
         rclpy.time.Time(),
         timeout=rclpy.duration.Duration(seconds=1.0),
     )
-    out = do_transform_pose(pose, transform)
+    transformed_pose = do_transform_pose(pose.pose, transform)
+    out = PoseStamped()
     out.header.stamp = node.get_clock().now().to_msg()
     out.header.frame_id = target_frame
+    out.pose = transformed_pose.pose if hasattr(transformed_pose, 'pose') else transformed_pose
     return out

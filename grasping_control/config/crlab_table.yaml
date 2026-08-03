@@ -1,0 +1,30 @@
+motion_execution_node:
+  ros__parameters:
+    workspace:
+      version: 1
+      updated_at: '2026-08-03T02:16:05.443265+00:00'
+      base_frame: world
+      tool_frame: tool_tip
+      ground_plane_z: 0.0
+    workspace_area:
+      enabled: true
+      geometry:
+        type: square
+        dimensions: [0.3637275722831894, 0.6923774234557932]
+        pose:
+          position: [-0.08072389132182466, 0.9470303066957739, 0.6923774234557932]
+          orientation: [0.0, 0.0, 0.0, 1.0]
+        corner_points:
+          x: [0.14235394979417443, 0.13107749204821806, -0.3027683901928064, -0.29355861693688473]
+          y: [0.8095353614721577, 1.099317828940878, 1.0868793694302794, 0.7923886669397804]
+          z: [0.694202588527663, 0.6991359233174272, 0.6929544078445689, 0.683216774133514]
+    workspace_objects: [table]
+    workspace_object:
+      table:
+        geometry:
+          type: box
+          dimensions: [0.7401953760410833, 1.4472787931511397, 0.6817560646206512]
+          pose:
+            position: [-0.04784694164446651, 0.7235747195023372, 0.3408780323103256]
+            orientation: [0.0, 0.0, 0.7163828812503475, 0.6977073651979392]
+        shape: top_surface_rectangle

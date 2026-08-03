@@ -6,44 +6,77 @@ For calibration of the workspace file consumed by this node, see [creation.md](.
 
 ## Features
 
-`motion_execution_node` owns all robot-motion details after a client submits a `MoveToPose` goal.
+`motion_execution_node` owns all robot-motion details after a client submits a grasp-pose or named-pose action goal.
 
 Its major features are:
 
 - Transforming the incoming pose into the configured planning frame
 - Validating that the target lies inside the calibrated workspace area, when configured
-- Loading collision objects from `workspace.yaml` at startup
+- Loading collision objects from workspace ROS parameters at startup
 - Applying those objects to MoveIt through `ApplyPlanningScene`
+- Loading named motion poses from ROS parameters provided by `motion_config.yaml`
 - Publishing the calibrated workspace area as an RViz marker
 - Building MoveIt position and orientation constraints
 - Submitting the final motion request to `moveit_msgs/action/MoveGroup`
 
 This keeps MoveIt, TF, and workspace handling centralized in one server.
 
-## Goal Execution Flow
+## Grasp-Pose Flow
 
 For each `MoveToPose` goal, the node performs the following sequence:
 
 1. Publish feedback state `transforming_target_pose`.
-2. Transform the requested pose into `planning_frame`.
-3. Publish feedback state `validating_workspace_area`.
-4. Reject the goal if the target is outside the calibrated workspace area.
-5. Publish feedback state `planning_and_executing`.
-6. Build a `MotionPlanRequest` and send it to MoveIt.
+2. Reject the request if `target_pose.header.frame_id` is empty.
+3. Transform the requested pose into `planning_frame`.
+4. Publish feedback state `validating_workspace_area`.
+5. Reject the goal if the target is outside the calibrated workspace area.
+6. Publish feedback state `planning_and_executing`.
+7. Build a `MotionPlanRequest` and send it to MoveIt.
 
 If the goal succeeds, the action returns `success=true`. If it fails, the action aborts with a status message describing the cause.
 
+## Named-Pose Flow
+
+For each `MoveToNamedPose` goal, the node looks up `pose_name` in the `poses_list` ROS parameter, reads the matching pose parameter, converts the configured `[x, y, z, roll, pitch, yaw]` pose into a `PoseStamped`, then runs the same workspace validation and MoveIt execution path.
+
+The `workspace_center_pose` name is generated from the calibrated workspace area. Its X and Y come from the workspace center, its Z comes from the workspace center plus `workspace_to_end_effector_height`, and its roll, pitch, and yaw come from the configured `workspace_center_pose` parameter. All other named poses, including `pre_grasp_pose` and `post_grasp_pose`, use their configured position and orientation directly.
+
+To move the arm to the configured workspace-center pose from the ROS 2 CLI:
+
+```bash
+source install/setup.bash
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: workspace_center_pose}"
+```
+
+To move the arm to the configured pre-grasp pose from the ROS 2 CLI:
+
+```bash
+source install/setup.bash
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: pre_grasp_pose}"
+```
+
+To move the arm to the configured post-grasp pose:
+
+```bash
+source install/setup.bash
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: post_grasp_pose}"
+```
+
 ## Workspace Loading
 
-At startup, the node resolves a workspace configuration path and loads the YAML document written by `workspace_creation`.
+At startup, the node reads workspace configuration from ROS parameters. The robot launch files load the selected workspace YAML, such as `crlab_table.yaml`, as a ROS parameter file.
 
-In a colcon workspace, it prefers a root-level `workspace.yaml` when that file exists. Otherwise it falls back to the package config path, unless `workspace_config_path` explicitly points somewhere else.
+From the workspace configuration it reads:
 
-From that file it reads:
-
-- `objects`, which are converted into MoveIt collision objects
+- `workspace_objects` and `workspace_object`, which are converted into MoveIt collision objects
 - `workspace_area`, which is used as an acceptance filter for incoming goals
 - `base_frame`, which is used as the workspace-area reference frame when needed
+
+The robot launch files load `motion_config.yaml` as a ROS parameter file for `motion_execution_node`. That file contains:
+
+- `poses_list`, which controls which pose names the named-pose action accepts
+- one parameter per pose name, such as `workspace_center_pose`, `pre_grasp_pose`, and `post_grasp_pose`, each as `[x, y, z, roll, pitch, yaw]`
+- `workspace_to_end_effector_height`, used only for generated `workspace_center_pose` Z placement
 
 Unsupported geometry types are skipped with a warning. Supported runtime collision geometry types are:
 
@@ -89,10 +122,11 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 ### Action and Frames
 
 - `action_name`: action server name, default `move_arm_to_pose`
+- `named_pose_action_name`: named-pose action server name, default `move_arm_to_named_pose`
 - `move_group_action_name`: MoveIt action name, default `move_action`
 - `planning_group`: MoveIt group, default `manipulator`
 - `planning_frame`: planning frame, default `base_link`
-- `end_effector_link`: constrained link, default `tool0`
+- `end_effector_link`: constrained link, default `tool0` in the node and `tcp` in soft-gripper launch files
 
 ### Planning Tuning
 
@@ -107,7 +141,6 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 
 ### Workspace Integration
 
-- `workspace_config_path`: optional override for the workspace YAML path
 - `apply_planning_scene_service`: default `/apply_planning_scene`
 - `workspace_area_marker_topic`: default `/workspace_area_marker`
 
@@ -115,11 +148,11 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 
 On startup the node:
 
-1. resolves the workspace YAML path
-2. loads workspace objects and optional workspace area
+1. reads configured named poses from ROS parameters loaded by the launch file
+2. reads workspace objects and optional workspace area from ROS parameters
 3. publishes the workspace marker state
 4. applies collision objects to the planning scene if `ApplyPlanningScene` is available
-5. starts the `MoveToPose` action server
+5. starts the `MoveToPose` and `MoveToNamedPose` action servers
 
 If `ApplyPlanningScene` is unavailable, the node logs a warning and continues running without loading the planning scene.
 
@@ -128,6 +161,7 @@ If `ApplyPlanningScene` is unavailable, the node logs a warning and continues ru
 Common failure sources are:
 
 - incoming pose cannot be transformed into `planning_frame`
+- named pose is not listed in `motion_config.yaml`
 - workspace area is configured but invalid
 - target pose lies outside the calibrated workspace area
 - `MoveGroup` action server is unavailable

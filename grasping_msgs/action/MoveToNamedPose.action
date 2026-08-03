@@ -1,5 +1,5 @@
 # Goal
-geometry_msgs/PoseStamped target_pose
+string pose_name
 ---
 # Result
 bool success

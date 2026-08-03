@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional
 
 from geometry_msgs.msg import Point, PoseStamped
@@ -10,14 +11,14 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 
 from grasping_control.common import (
 	Quaternion,
-	dict_to_pose,
-	load_yaml_dict,
 	normalize_quaternion,
-	resolve_config_path,
 	transform_pose_to_frame,
 )
-from grasping_control.workspace_utils import collision_objects_from_workspace, point_in_workspace_area
-from grasping_msgs.action import MoveToPose
+from grasping_control.workspace_utils import (
+	collision_objects_from_workspace,
+	point_in_workspace_area,
+)
+from grasping_msgs.action import MoveToNamedPose, MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
 	BoundingVolume,
@@ -51,28 +52,26 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('move_group_action_name', 'move_action')
 		self.declare_parameter('planning_group', 'manipulator')
 		self.declare_parameter('planning_frame', 'base_link')
-		self.declare_parameter('end_effector_link', 'tool0')
+		self.declare_parameter('planning_pipeline_id', '')
+		self.declare_parameter('planner_id', '')
 		self.declare_parameter('allowed_planning_time', 5.0)
 		self.declare_parameter('num_planning_attempts', 5)
 		self.declare_parameter('max_velocity_scaling', 0.2)
 		self.declare_parameter('max_acceleration_scaling', 0.2)
 		self.declare_parameter('position_tolerance_m', 0.005)
 		self.declare_parameter('orientation_tolerance_rad', 0.1)
-		self.declare_parameter('planning_pipeline_id', '')
-		self.declare_parameter('planner_id', '')
-		self.declare_parameter('workspace_config_path', '')
+		self.declare_parameter('end_effector_link', 'tool0')
+		self.declare_parameter('named_pose_action_name', 'move_arm_to_named_pose')
+		self.declare_parameter('workspace_to_end_effector_height', 0.0)
+		self.declare_parameter('poses_list', ['workspace_center_pose', 'pre_grasp_pose', 'post_grasp_pose'])
 		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
 		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
-		self._workspace_config_path = resolve_config_path(
-			'grasping_control',
-			str(self.get_parameter('workspace_config_path').value),
-			'workspace.yaml',
-		)
+		self._declare_workspace_parameters()
 		self._workspace_area: Optional[Dict[str, Any]] = None
 		self._workspace_area_frame = self._planning_frame
-		self._post_grasp_pose: Optional[Dict[str, Any]] = None
+		self._declare_configured_pose_parameters()
 
 		# TF is only handled in this node so every incoming action goal is transformed into
 		# the planning frame before MoveIt constraints are constructed.
@@ -98,12 +97,20 @@ class MotionExecutionNode(Node):
 			ApplyPlanningScene,
 			str(self.get_parameter('apply_planning_scene_service').value),
 		)
-		self._action_server = ActionServer(
+		self._grasp_pose_action_server = ActionServer(
 			self,
 			MoveToPose,
 			str(self.get_parameter('action_name').value),
 			execute_callback=self._execute_move_to_pose,
 			goal_callback=self._goal_callback,
+			cancel_callback=self._cancel_callback,
+		)
+		self._named_pose_action_server = ActionServer(
+			self,
+			MoveToNamedPose,
+			str(self.get_parameter('named_pose_action_name').value),
+			execute_callback=self._execute_move_to_named_pose,
+			goal_callback=self._named_pose_goal_callback,
 			cancel_callback=self._cancel_callback,
 		)
 
@@ -114,6 +121,9 @@ class MotionExecutionNode(Node):
 		self.get_logger().info(
 			f"Motion execution action server ready on {self.get_parameter('action_name').value}"
 		)
+		self.get_logger().info(
+			f"Named-pose action server ready on {self.get_parameter('named_pose_action_name').value}"
+		)
 
 	def destroy_node(self) -> bool:
 		"""
@@ -121,7 +131,8 @@ class MotionExecutionNode(Node):
 
 		@return Result from the base destroy_node implementation.
 		"""
-		self._action_server.destroy()
+		self._grasp_pose_action_server.destroy()
+		self._named_pose_action_server.destroy()
 		return super().destroy_node()
 
 	def _goal_callback(self, _goal_request: MoveToPose.Goal) -> GoalResponse:
@@ -131,6 +142,19 @@ class MotionExecutionNode(Node):
 		@param _goal_request Requested goal payload.
 		@return Goal acceptance decision.
 		"""
+		return GoalResponse.ACCEPT
+
+	def _named_pose_goal_callback(self, goal_request: MoveToNamedPose.Goal) -> GoalResponse:
+		"""
+		@brief Accept configured-pose goals only when the pose name is known.
+
+		@param goal_request Requested named-pose payload.
+		@return Goal acceptance decision.
+		"""
+		pose_name = str(goal_request.pose_name).strip()
+		if not self._configured_pose_exists(pose_name):
+			self.get_logger().warn(f"Rejecting unknown configured pose '{pose_name}'.")
+			return GoalResponse.REJECT
 		return GoalResponse.ACCEPT
 
 	def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
@@ -154,14 +178,11 @@ class MotionExecutionNode(Node):
 
 		try:
 			# Clients can send poses in any connected frame. The server normalizes that first,
-			# then uses a single planning pipeline for both grasp and post-grasp motion.
+			# then uses one planning pipeline for supplied grasp poses.
 			feedback.state = 'transforming_target_pose'
 			goal_handle.publish_feedback(feedback)
-			if bool(goal_handle.request.move_to_post_grasp_pose):
-				configured_post_grasp_pose = self._get_post_grasp_pose_stamped()
-				if configured_post_grasp_pose is None:
-					raise RuntimeError('No post-grasp pose is configured in the workspace file.')
-				target_pose = configured_post_grasp_pose
+			if not str(target_pose.header.frame_id).strip():
+				raise RuntimeError('Grasp pose target_pose.header.frame_id must be set.')
 			target_pose = transform_pose_to_frame(
 				self,
 				self._tf_buffer,
@@ -198,28 +219,114 @@ class MotionExecutionNode(Node):
 			goal_handle.abort()
 		return result
 
+	def _execute_move_to_named_pose(self, goal_handle: Any) -> MoveToNamedPose.Result:
+		"""
+		@brief Plan and execute a preconfigured named pose.
+
+		@param goal_handle Active named-pose action goal handle.
+		@return Action result describing the outcome.
+		"""
+		feedback = MoveToNamedPose.Feedback()
+		pose_name = str(goal_handle.request.pose_name).strip()
+
+		try:
+			feedback.state = 'loading_named_pose'
+			goal_handle.publish_feedback(feedback)
+			target_pose = self._get_named_pose_stamped(pose_name)
+
+			feedback.state = 'transforming_target_pose'
+			goal_handle.publish_feedback(feedback)
+			target_pose = transform_pose_to_frame(
+				self,
+				self._tf_buffer,
+				target_pose,
+				self._planning_frame,
+			)
+
+			feedback.state = 'validating_workspace_area'
+			goal_handle.publish_feedback(feedback)
+			if not self._target_pose_in_workspace_area(target_pose):
+				result = MoveToNamedPose.Result()
+				result.success = False
+				result.message = f"Configured pose '{pose_name}' lies outside the calibrated workspace area."
+				goal_handle.abort()
+				return result
+
+			feedback.state = 'planning_and_executing'
+			goal_handle.publish_feedback(feedback)
+			ok, message = self._move_to_pose(target_pose)
+
+		except Exception as exc:  # noqa: BLE001
+			ok = False
+			message = str(exc)
+
+		result = MoveToNamedPose.Result()
+		result.success = bool(ok)
+		result.message = message
+
+		if ok:
+			goal_handle.succeed()
+		else:
+			goal_handle.abort()
+		return result
+
+	def _declare_configured_pose_parameters(self) -> None:
+		"""
+		@brief Declare pose parameters listed by poses_list.
+		"""
+		pose_names = self._configured_pose_names()
+		for pose_name in pose_names:
+			if not self.has_parameter(pose_name):
+				self.declare_parameter(pose_name, [0.0, 0.0, 0.30, 0.0, 0.0, 0.0])
+
+		if pose_names:
+			self.get_logger().info('Configured motion pose parameters: ' + ', '.join(pose_names))
+		else:
+			self.get_logger().warn('No configured motion poses listed in poses_list.')
+
+	def _declare_workspace_parameters(self) -> None:
+		"""
+		@brief Declare ROS parameters used to describe the calibrated workspace.
+		"""
+		self.declare_parameter('workspace.version', 1)
+		self.declare_parameter('workspace.updated_at', '')
+		self.declare_parameter('workspace.base_frame', self._planning_frame)
+		self.declare_parameter('workspace.tool_frame', '')
+		self.declare_parameter('workspace.ground_plane_z', 0.0)
+		self.declare_parameter('workspace_area.enabled', False)
+		self.declare_parameter('workspace_area.geometry.type', '')
+		self.declare_parameter('workspace_area.geometry.dimensions', [0.0, 0.0])
+		self.declare_parameter('workspace_area.geometry.pose.position', [0.0, 0.0, 0.0])
+		self.declare_parameter('workspace_area.geometry.pose.orientation', [0.0, 0.0, 0.0, 1.0])
+		self.declare_parameter('workspace_area.geometry.corner_points.x', [0.0, 0.0, 0.0, 0.0])
+		self.declare_parameter('workspace_area.geometry.corner_points.y', [0.0, 0.0, 0.0, 0.0])
+		self.declare_parameter('workspace_area.geometry.corner_points.z', [0.0, 0.0, 0.0, 0.0])
+		self.declare_parameter('workspace_objects', [''])
+
+		for object_name in self._workspace_object_names():
+			prefix = f'workspace_object.{object_name}'
+			self.declare_parameter(f'{prefix}.geometry.type', '')
+			self.declare_parameter(f'{prefix}.geometry.dimensions', [0.0, 0.0, 0.0])
+			self.declare_parameter(f'{prefix}.geometry.pose.position', [0.0, 0.0, 0.0])
+			self.declare_parameter(f'{prefix}.geometry.pose.orientation', [0.0, 0.0, 0.0, 1.0])
+			self.declare_parameter(f'{prefix}.shape', '')
+
 	def _load_workspace_into_planning_scene(self) -> None:
 		"""
 		@brief Load persisted workspace obstacles into the MoveIt planning scene.
 		"""
-		if not self._workspace_config_path.exists():
+		if self._has_workspace_parameter_config():
+			self.get_logger().info('Loading workspace config from ROS parameters.')
+			workspace_config = self._workspace_config_from_parameters()
+		else:
 			self.get_logger().warn(
-				f'Workspace config not found at {self._workspace_config_path}; starting with an empty scene.'
+				'No workspace ROS parameters configured; starting with an empty scene.'
 			)
-		else:
-			self.get_logger().info(f'Loading workspace config from {self._workspace_config_path}')
+			workspace_config = {'workspace_area': None, 'objects': [], 'base_frame': self._planning_frame}
 
-		# The workspace file is authored by the calibration node and already contains derived
-		# primitive geometry, so startup only needs to translate it into CollisionObjects.
-		workspace_config = load_yaml_dict(self._workspace_config_path, {'workspace_area': None, 'objects': []})
+		# The workspace config already contains derived primitive geometry, so startup only needs
+		# to translate it into CollisionObjects.
 		self._workspace_area_frame = str(workspace_config.get('base_frame', self._planning_frame))
-		post_grasp_pose = workspace_config.get('post_grasp_pose')
-		if isinstance(post_grasp_pose, dict):
-			self._post_grasp_pose = post_grasp_pose
-		else:
-			self._post_grasp_pose = None
-			if post_grasp_pose is not None:
-				self.get_logger().warn('Ignoring invalid post_grasp_pose value; expected a mapping.')
 		workspace_area = workspace_config.get('workspace_area')
 		if isinstance(workspace_area, dict):
 			self._workspace_area = workspace_area
@@ -269,26 +376,312 @@ class MotionExecutionNode(Node):
 
 		self.get_logger().info(f'Applied {len(collision_objects)} workspace objects to the planning scene.')
 
-	def _get_post_grasp_pose_stamped(self) -> Optional[PoseStamped]:
+	def _has_workspace_parameter_config(self) -> bool:
 		"""
-		@brief Return the workspace-configured post-grasp pose as a PoseStamped.
+		@brief Return whether workspace config was loaded as ROS parameters.
+		"""
+		return self._get_bool_parameter('workspace_area.enabled') or bool(self._workspace_object_names())
 
-		@return PoseStamped when configured and valid, otherwise None.
+	def _workspace_config_from_parameters(self) -> Dict[str, Any]:
 		"""
-		if not isinstance(self._post_grasp_pose, dict):
+		@brief Reconstruct the runtime workspace config dictionary from ROS parameters.
+
+		@return Workspace configuration in the runtime collision-object shape.
+		"""
+		workspace_config: Dict[str, Any] = {
+			'version': int(self.get_parameter('workspace.version').value),
+			'updated_at': str(self.get_parameter('workspace.updated_at').value),
+			'base_frame': str(self.get_parameter('workspace.base_frame').value),
+			'tool_frame': str(self.get_parameter('workspace.tool_frame').value),
+			'ground_plane_z': float(self.get_parameter('workspace.ground_plane_z').value),
+			'workspace_area': None,
+			'objects': [],
+		}
+
+		if self._get_bool_parameter('workspace_area.enabled'):
+			workspace_config['workspace_area'] = {
+				'geometry': self._workspace_area_geometry_from_parameters(),
+			}
+
+		for object_name in self._workspace_object_names():
+			workspace_object = self._workspace_object_from_parameters(object_name)
+			if workspace_object is not None:
+				workspace_config['objects'].append(workspace_object)
+
+		return workspace_config
+
+	def _workspace_area_geometry_from_parameters(self) -> Dict[str, Any]:
+		"""
+		@brief Build workspace-area geometry from ROS parameters.
+		"""
+		dimensions = self._coerce_float_sequence(
+			self.get_parameter('workspace_area.geometry.dimensions').value,
+			2,
+			'workspace_area.geometry.dimensions',
+		)
+		corner_x = self._coerce_float_sequence(
+			self.get_parameter('workspace_area.geometry.corner_points.x').value,
+			4,
+			'workspace_area.geometry.corner_points.x',
+		)
+		corner_y = self._coerce_float_sequence(
+			self.get_parameter('workspace_area.geometry.corner_points.y').value,
+			4,
+			'workspace_area.geometry.corner_points.y',
+		)
+		corner_z = self._coerce_float_sequence(
+			self.get_parameter('workspace_area.geometry.corner_points.z').value,
+			4,
+			'workspace_area.geometry.corner_points.z',
+		)
+
+		return {
+			'type': str(self.get_parameter('workspace_area.geometry.type').value),
+			'dimensions': {
+				'side_length': dimensions[0],
+				'height_from_ground': dimensions[1],
+			},
+			'pose': self._pose_dict_from_parameters('workspace_area.geometry.pose'),
+			'corner_points': [
+				{'x': corner_x[index], 'y': corner_y[index], 'z': corner_z[index]}
+				for index in range(4)
+			],
+		}
+
+	def _workspace_object_from_parameters(self, object_name: str) -> Optional[Dict[str, Any]]:
+		"""
+		@brief Build one workspace object dictionary from ROS parameters.
+		"""
+		prefix = f'workspace_object.{object_name}'
+		geometry_type = str(self.get_parameter(f'{prefix}.geometry.type').value)
+		if not geometry_type:
+			self.get_logger().warn(f"Skipping workspace object '{object_name}' because geometry type is empty.")
 			return None
 
-		frame = str(self._post_grasp_pose.get('frame', '')).strip()
-		pose_dict = self._post_grasp_pose.get('pose')
-		if not frame or not isinstance(pose_dict, dict):
-			self.get_logger().warn('Ignoring invalid post_grasp_pose entry in workspace config.')
-			return None
+		dimensions = self._coerce_float_sequence(
+			self.get_parameter(f'{prefix}.geometry.dimensions').value,
+			3 if geometry_type == 'box' else 2,
+			f'{prefix}.geometry.dimensions',
+		)
+		if geometry_type == 'box':
+			dimensions_dict = {'x': dimensions[0], 'y': dimensions[1], 'z': dimensions[2]}
+		else:
+			dimensions_dict = {'height': dimensions[0], 'radius': dimensions[1]}
 
+		workspace_object: Dict[str, Any] = {
+			'name': object_name,
+			'geometry': {
+				'type': geometry_type,
+				'dimensions': dimensions_dict,
+				'pose': self._pose_dict_from_parameters(f'{prefix}.geometry.pose'),
+			},
+		}
+		shape = str(self.get_parameter(f'{prefix}.shape').value)
+		if shape:
+			workspace_object['shape'] = shape
+		return workspace_object
+
+	def _pose_dict_from_parameters(self, prefix: str) -> Dict[str, Any]:
+		"""
+		@brief Build a pose dictionary from position and orientation parameter arrays.
+		"""
+		position = self._coerce_float_sequence(
+			self.get_parameter(f'{prefix}.position').value,
+			3,
+			f'{prefix}.position',
+		)
+		orientation = self._coerce_float_sequence(
+			self.get_parameter(f'{prefix}.orientation').value,
+			4,
+			f'{prefix}.orientation',
+		)
+		return {
+			'position': {'x': position[0], 'y': position[1], 'z': position[2]},
+			'orientation': {
+				'x': orientation[0],
+				'y': orientation[1],
+				'z': orientation[2],
+				'w': orientation[3],
+			},
+		}
+
+	def _workspace_object_names(self) -> List[str]:
+		"""
+		@brief Return configured workspace object names.
+		"""
+		workspace_objects = self.get_parameter('workspace_objects').value
+		if isinstance(workspace_objects, str):
+			workspace_objects = [item.strip() for item in workspace_objects.strip('[]()').split(',')]
+		if not isinstance(workspace_objects, list):
+			return []
+		return [str(name).strip() for name in workspace_objects if str(name).strip()]
+
+	def _configured_pose_names(self) -> List[str]:
+		"""
+		@brief Return the list of configured pose names.
+
+		@return Pose names from the poses_list ROS parameter.
+		"""
+		poses_list = self.get_parameter('poses_list').value
+		if isinstance(poses_list, str):
+			poses_list = [item.strip() for item in poses_list.strip('[]()').split(',') if item.strip()]
+		if not isinstance(poses_list, list):
+			return []
+		return [str(name) for name in poses_list]
+
+	def _configured_pose_exists(self, pose_name: str) -> bool:
+		"""
+		@brief Check whether a configured pose exists.
+
+		@param pose_name Requested pose name.
+		@return True when the pose name is allowed and has pose values.
+		"""
+		return pose_name in self._configured_pose_names() and self.has_parameter(pose_name)
+
+	def _get_named_pose_stamped(self, pose_name: str) -> PoseStamped:
+		"""
+		@brief Return a configured named pose as a PoseStamped.
+
+		@param pose_name Name from motion_config.yaml.
+		@return PoseStamped in the workspace area frame or planning frame.
+		"""
+		if not self._configured_pose_exists(pose_name):
+			raise RuntimeError(
+				f"Unknown configured pose '{pose_name}'. Available poses: {', '.join(self._configured_pose_names())}"
+			)
+
+		pose_values = self._coerce_float_sequence(
+			self.get_parameter(pose_name).value,
+			6,
+			pose_name,
+		)
+		workspace_to_end_effector_height = float(
+			self.get_parameter('workspace_to_end_effector_height').value
+		)
+
+		if pose_name == 'workspace_center_pose':
+			workspace_center = self._workspace_area_center()
+			if workspace_center is None:
+				raise RuntimeError("Configured pose 'workspace_center_pose' requires a calibrated workspace area.")
+			return self._pose_stamped_from_values(
+				self._workspace_area_frame,
+				[
+					workspace_center['x'],
+					workspace_center['y'],
+					workspace_center['z'] + workspace_to_end_effector_height,
+					pose_values[3],
+					pose_values[4],
+					pose_values[5],
+				],
+			)
+
+		return self._pose_stamped_from_values(self._planning_frame, pose_values)
+
+	def _pose_stamped_from_values(self, frame: str, pose_values: List[float]) -> PoseStamped:
+		"""
+		@brief Convert [x, y, z, roll, pitch, yaw] values into a PoseStamped.
+
+		@param frame Frame id for the output pose.
+		@param pose_values Six pose values.
+		@return PoseStamped in the requested frame.
+		"""
 		pose_stamped = PoseStamped()
 		pose_stamped.header.stamp = self.get_clock().now().to_msg()
 		pose_stamped.header.frame_id = frame
-		pose_stamped.pose = dict_to_pose(pose_dict)
+		pose_stamped.pose.position.x = pose_values[0]
+		pose_stamped.pose.position.y = pose_values[1]
+		pose_stamped.pose.position.z = pose_values[2]
+		orientation = self._quaternion_from_rpy(pose_values[3], pose_values[4], pose_values[5])
+		pose_stamped.pose.orientation.x = orientation.x
+		pose_stamped.pose.orientation.y = orientation.y
+		pose_stamped.pose.orientation.z = orientation.z
+		pose_stamped.pose.orientation.w = orientation.w
 		return pose_stamped
+
+	def _workspace_area_center(self) -> Optional[Dict[str, float]]:
+		"""
+		@brief Return the calibrated workspace-area center when available.
+
+		@return Center point from workspace-area geometry, otherwise None.
+		"""
+		if self._workspace_area is None:
+			return None
+
+		geometry = self._workspace_area.get('geometry', {})
+		pose = geometry.get('pose', {})
+		position = pose.get('position', {}) if isinstance(pose, dict) else {}
+		if isinstance(position, dict) and all(axis in position for axis in ('x', 'y', 'z')):
+			return {
+				'x': float(position['x']),
+				'y': float(position['y']),
+				'z': float(position['z']),
+			}
+
+		corner_points = geometry.get('corner_points', [])
+		if len(corner_points) != 4:
+			return None
+
+		return {
+			'x': sum(float(point['x']) for point in corner_points) / 4.0,
+			'y': sum(float(point['y']) for point in corner_points) / 4.0,
+			'z': sum(float(point['z']) for point in corner_points) / 4.0,
+		}
+
+	def _coerce_float_sequence(self, value: Any, expected_length: int, name: str) -> List[float]:
+		"""
+		@brief Convert a fixed-length sequence-like value into floats.
+
+		@param value Sequence value from YAML or parameters.
+		@param expected_length Required number of values.
+		@param name Human-readable value name for error messages.
+		@return Parameter values as floats.
+		"""
+		if isinstance(value, str):
+			items = [item.strip() for item in value.strip('[]()').split(',') if item.strip()]
+		else:
+			items = list(value)
+
+		if len(items) != expected_length:
+			raise RuntimeError(f"'{name}' must contain {expected_length} values.")
+		return [float(item) for item in items]
+
+	def _get_bool_parameter(self, name: str) -> bool:
+		"""
+		@brief Read a boolean ROS parameter that may arrive as a string.
+
+		@param name Parameter name.
+		@return Boolean parameter value.
+		"""
+		value = self.get_parameter(name).value
+		if isinstance(value, str):
+			return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+		return bool(value)
+
+	@staticmethod
+	def _quaternion_from_rpy(roll: float, pitch: float, yaw: float) -> Quaternion:
+		"""
+		@brief Convert roll-pitch-yaw Euler angles to a quaternion.
+
+		@param roll Roll angle in radians.
+		@param pitch Pitch angle in radians.
+		@param yaw Yaw angle in radians.
+		@return Equivalent normalized quaternion.
+		"""
+		cy = math.cos(yaw * 0.5)
+		sy = math.sin(yaw * 0.5)
+		cp = math.cos(pitch * 0.5)
+		sp = math.sin(pitch * 0.5)
+		cr = math.cos(roll * 0.5)
+		sr = math.sin(roll * 0.5)
+
+		return normalize_quaternion(
+			Quaternion(
+				sr * cp * cy - cr * sp * sy,
+				cr * sp * cy + sr * cp * sy,
+				cr * cp * sy - sr * sp * cy,
+				cr * cp * cy + sr * sp * sy,
+			)
+		)
 
 	def _target_pose_in_workspace_area(self, target_pose: PoseStamped) -> bool:
 		"""
@@ -378,13 +771,7 @@ class MotionExecutionNode(Node):
 
 		# The custom action stays thin and delegates actual motion execution to MoveIt so the
 		# rest of the system can talk to one stable arm-control interface.
-		goal = MoveGroup.Goal()
-		goal.request = self._build_motion_plan_request(target_pose)
-		goal.planning_options = PlanningOptions()
-		goal.planning_options.plan_only = False
-		goal.planning_options.look_around = False
-		goal.planning_options.replan = False
-		goal.planning_options.replan_attempts = 0
+		goal = self._build_move_group_goal(target_pose)
 
 		send_future = self._movegroup_client.send_goal_async(goal)
 		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
@@ -405,6 +792,22 @@ class MotionExecutionNode(Node):
 			return False, f'MoveGroup failed with error code: {result.error_code.val}'
 
 		return True, 'Arm motion completed successfully.'
+
+	def _build_move_group_goal(self, target_pose: PoseStamped) -> MoveGroup.Goal:
+		"""
+		@brief Build a MoveGroup action goal for a target pose.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@return Configured MoveGroup goal.
+		"""
+		goal = MoveGroup.Goal()
+		goal.request = self._build_motion_plan_request(target_pose)
+		goal.planning_options = PlanningOptions()
+		goal.planning_options.plan_only = False
+		goal.planning_options.look_around = False
+		goal.planning_options.replan = False
+		goal.planning_options.replan_attempts = 0
+		return goal
 
 	def _build_motion_plan_request(self, target_pose: PoseStamped) -> MotionPlanRequest:
 		"""

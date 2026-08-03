@@ -24,20 +24,9 @@ This wrapper launch file includes the default `tm12s_soft_two_fingers_moveit_con
 The wrapper itself defines these defaults:
 
 - `use_demo:=false`
-- `arm_action_name:=move_arm_to_pose`
-- `move_group_action_name:=move_action`
-- `planning_group:=tm12s_arm`
-- `planning_frame:=base`
-- `end_effector_link:=tool_tip`
-- `allowed_planning_time:=5.0`
-- `num_planning_attempts:=5`
-- `max_velocity_scaling:=0.2`
-- `max_acceleration_scaling:=0.2`
-- `position_tolerance_m:=0.005`
-- `orientation_tolerance_rad:=0.1`
-- `planning_pipeline_id:=''`
-- `planner_id:=''`
-- `workspace_config_path:=<grasping_control_share>/config/crlab_table.yaml`
+- `workspace_file:=workspace_empty.yaml`
+
+Motion execution defaults, including action names, planning group, planning frame, TCP link, MoveIt tuning, and named poses such as `workspace_center_pose`, `pre_grasp_pose`, and `post_grasp_pose`, are loaded into `motion_execution_node` from `<grasping_control_share>/config/motion_config.yaml` as ROS parameters. The calibrated table/workspace scene is selected with `workspace_file` and loaded as a ROS parameter file.
 
 The included `tm12s_soft_two_fingers_moveit_config` launch still provides its own driver, MoveIt, and soft two-finger gripper action server on `/gripper_command`. It also provides arguments such as `tm_robot_ip` and `launch_servo`.
 

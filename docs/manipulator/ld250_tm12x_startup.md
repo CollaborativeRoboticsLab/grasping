@@ -33,12 +33,9 @@ The launch file defines these primary arguments:
 - `launch_servo:=false`
 - `use_base:=false`
 - `use_nav2:=false`
+- `workspace_file:=workspace_empty.yaml`
 
-The combined MoveIt configuration uses:
-
-- `planning_group:=tmr_arm_with_base`
-- `planning_frame:=base_link`
-- `end_effector_link:=tool_tip`
+Motion execution defaults, including action names, planning group, planning frame, TCP link, MoveIt tuning, and named poses such as `workspace_center_pose`, `pre_grasp_pose`, and `post_grasp_pose`, are loaded into `motion_execution_node` from `<grasping_control_share>/config/motion_config.yaml` as ROS parameters. The calibrated table/workspace scene is selected with `workspace_file` and loaded as a ROS parameter file.
 
 Enable Servo if you want jogging through the forward position controller:
 
