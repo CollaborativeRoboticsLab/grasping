@@ -47,7 +47,7 @@ Override any of them on the command line when needed, for example
 
 ```bash
 source install/setup.bash
-ros2 launch grasping_control tm12s_soft_two_fingers.launch.py robot_ip:=10.0.0.89 launch_rviz:=false
+ros2 launch grasping_control tm12s_soft_two_fingers.launch.py tm_robot_ip:=10.0.0.89 launch_rviz:=false
 ```
 
 Or switch the wrapper to demo mode:
