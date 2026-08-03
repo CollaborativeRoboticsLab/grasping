@@ -1,6 +1,16 @@
 # Grasping Stack
 
-This package provides grasping functionality for [UR robots](https://www.universal-robots.com/) and [TM robots](https://www.techmanrobot.com/) using [RealSense Camera](https://github.com/realsenseai/realsense-ros) and [custom grippers](https://github.com/CollaborativeRoboticsLab/grippers)
+This package provides grasping functionality using [RealSense Camera](https://github.com/realsenseai/realsense-ros) and [custom grippers](https://github.com/CollaborativeRoboticsLab/grippers). The grasping stack is designed to be modular and can be used with different manipulators, grippers, and grasp pose detectors.
+
+This stack has extensions to support following manipulators:
+
+- UR Robots via [CollaborativeRoboticsLab/grasping_ur](https://github.com/CollaborativeRoboticsLab/grasping_ur)
+- TM Robots via [CollaborativeRoboticsLab/grasping_tm](https://github.com/CollaborativeRoboticsLab/grasping_tm)
+- Omron Mobile Manipulator Robots via [CollaborativeRoboticsLab/grasping_omron_moma](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma)
+
+
+And also supports grasping pose detectors like 
+- [AnyGrasp](https://github.com/CollaborativeRoboticsLab/anygrasp_ros) via [CollaborativeRoboticsLab/grasping_anygrasp](https://github.com/CollaborativeRoboticsLab/grasping_anygrasp)
 
 ## System Architecture
 
@@ -17,21 +27,9 @@ In this grasping framework, we evaluate different gripper types. Due to this we 
 
 In this grasping framework, we have tested with the UR10, TM12s manipulators and LD250 & TM12x mobile manipulator. Instructions related to setup, configuration and calibration are in the linked files.
 
-**UR10 Manipulator**
-- [UR10 and Devcontainer connection](./docs/manipulator/ur10_connection.md)
-- [UR10 calibration](./docs/manipulator/ur10_calibration.md)
-- [UR10 tf frames for gripper compatibility](./docs/manipulator/ur10_tf_frames.md)
-- [UR10 startup](./docs/manipulator/ur10_startup.md)
-
-**TM12S Manipulator**
-- [TM12S and Devcontainer connection](./docs/manipulator/tm12s_connection.md)
-- [TM12S tf frames for gripper compatibility](./docs/manipulator/tm12s_tf_frames.md)
-
-**LD250 &TM12x Mobile Manipulator**
-- [LD250 & TM12X and Devcontainer connection](./docs/manipulator/ld250_tm12x_connection.md)
-- [LD250 & TM12X tf frames for gripper compatibility](./docs/manipulator/ld250_tm12x_tf_frames.md)
-
-**Common**
+- [UR10 Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_ur)
+- [TM12s Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_tm)
+- [LD250 & TM12x Mobile Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma)
 - [Attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 - [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
 
@@ -49,36 +47,11 @@ An external stack is typically used to detect or calculate a grasp pose, and thi
 
 - [Anygrasp based Grasping pipeline](https://github.com/CollaborativeRoboticsLab/anygrasp_grasping)
 
-## Starting the camera
+## Usage
 
-Use the following command to start the realsense D435 camera.
+Refer to the Manipulator specific grasping stack for usage instructions.
 
-```bash
-source install/setup.bash
-ros2 launch grasping_camera d435.launch.py
-```
+For motion execution, use the following command to execute a grasp pose:
 
-## Start the UR10 Manipulator and Gripper with MoveIt
 
-### For `UR10 with soft two-finger gripper`
-
-```bash
-source install/setup.bash
-ros2 launch grasping_control ur10_soft_two_fingers.launch.py
-```
-
-### For `TM12s with soft two-finger gripper`
-
-```bash
-source install/setup.bash
-ros2 launch grasping_control tm12s_soft_two_fingers.launch.py
-```
-
-### For `LD250 & TM12X with soft two-finger gripper`
-
-```bash
-source install/setup.bash
-ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py
-``` 
-
-These MoveIt hardware stacks start the shared soft two-finger gripper action server on `/gripper_command` automatically. Use `ros2 launch gripper_ros gripper_soft_two_fingers.launch.py` only when testing the gripper without a manipulator MoveIt stack.
+For named poses, use the following command to execute a grasp pose:

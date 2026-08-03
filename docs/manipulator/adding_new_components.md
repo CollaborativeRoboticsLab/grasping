@@ -10,7 +10,7 @@ Once you have a new gripper ready, you can add it to the manipulator by followin
 
 Combine the description files of the components you need to use into a single xacro file. For example, if you want to add a new gripper to the UR10 manipulator, you can create a new xacro file that includes both the UR10 and the new gripper descriptions.
 
-We recommend creating a new xacro file in the `grasping_description/xacro` folder for each new combination of manipulator and gripper, for example [`ur10_with_gripper.urdf.xacro`](../../grasping_description/xacro/ur10_soft_two_fingers/ur10-soft-two-fingers.urdf.xacro). This way you can keep the original component descriptions unchanged and easily switch between different combinations.
+We recommend creating a new xacro file in the `grasping_description/xacro` folder for each new combination of manipulator and gripper. This way you can keep the original component descriptions unchanged and easily switch between different combinations.
 
 In this project we follow this and use the following naming convention for the combined descriptions:
 
@@ -20,10 +20,9 @@ In this project we follow this and use the following naming convention for the c
 
 Currently we have,
 
-| Description | Manipulator and Gripper |
-|-------------|------------------------|
-| `ur10-soft-two-fingers.urdf.xacro` | UR10 manipulator and the softtwo-finger gripper |
-| `tm12s-soft-two-fingers.urdf.xacro` | TM12S manipulator and the softtwo-finger gripper |
+- [UR10 Manipulator Descriptions](https://github.com/CollaborativeRoboticsLab/grasping_ur/tree/main/grasping_description_ur)
+- [TM12s Manipulator Descriptions](https://github.com/CollaborativeRoboticsLab/grasping_tm/tree/main/grasping_description_tm)
+- [LD250 & TM12x Mobile Manipulator Descriptions](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma/tree/main/grasping_description_omron_moma)
 
 ## Updating the MoveIt configuration
 
@@ -61,30 +60,13 @@ Recommended naming convention for the MoveIt configuration packages is:
 
 Currently we have,
 
-- `ur10_soft_two_fingers_moveit_config` which is the MoveIt configuration package for the UR10 with two-finger gripper.
-
-| Description | MoveIt Configuration Package | Manipulator and Gripper |
-|-------------|-------------------------------|------------------------|
-| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config` | UR10 manipulator and the softtwo-finger gripper |
-| `tm12s-soft-two-fingers.urdf.xacro` | `tm12s_soft_two_fingers_moveit_config` | TM12S manipulator and the softtwo-finger gripper |
+- [UR10 Manipulator MoveIt Configuration](https://github.com/CollaborativeRoboticsLab/grasping_ur/tree/main/grasping_moveit_config)
+- [TM12s Manipulator MoveIt Configuration](https://github.com/CollaborativeRoboticsLab/grasping_tm/tree/main/grasping_moveit_config)
+- [LD250 & TM12x Mobile Manipulator MoveIt Configuration](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma/tree/main/grasping_moveit_config)
 
 ## Testing the new setup
 
 Use the demonstration launch files to test the new setup. You can create a new launch file for the new combination, or you can update an existing one if it already exists.
-
-```bash
-colcon build
-source install/setup.bash
-ros2 launch ur10_soft_two_fingers_moveit_config demo.launch.py
-```
-
-or for the TM12S manipulator with soft two-finger gripper
-
-```bash
-colcon build
-source install/setup.bash
-ros2 launch tm12s_soft_two_fingers_moveit_config demo.launch.py
-```
 
 If the MoveIt Setup Assistant generated only fake-hardware oriented file, you might have to update `ur.ros2_control.xacro`, `ur.urdf.xacro` and other files to match.
 
@@ -98,10 +80,9 @@ Recommended appraoch is to create the `hardware_with_moveit.launch.py` inside th
 
 Currently we have,
 
-| Description | Launch File | Manipulator and Gripper |
-|-------------|-------------|------------------------|
-| `ur10-soft-two-fingers.urdf.xacro` | `ur10_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | UR10 manipulator and the soft two-finger gripper |
-| `tm12s-soft-two-fingers.urdf.xacro` | `tm12s_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` | TM12S manipulator and the soft two-finger gripper |
+- [UR10 Manipulator Launch](https://github.com/CollaborativeRoboticsLab/grasping_ur/tree/main/grasping_ur/launch)
+- [TM12s Manipulator Launch](https://github.com/CollaborativeRoboticsLab/grasping_tm/tree/main/grasping_tm/launch)
+- [LD250 & TM12x Mobile Manipulator Launch](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma/tree/main/grasping_omron_moma/launch)
 
 To create a new launch file, you can copy an existing one and modify it to use the new MoveIt configuration and the combined description.
 
@@ -121,23 +102,11 @@ This keeps task logic simple: external code can plan with MoveIt, execute arm mo
 
 Currently we support following systems
 
-### UR10 with soft two finger gripper
+- [UR10 Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_ur)
+- [TM12s Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_tm)
+- [LD250 & TM12x Mobile Manipulator](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma)
 
-```bash
-colcon build
-source install/setup.bash
-ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
-```
-
-### TM12S with soft two finger gripper
-
-```bash
-colcon build
-source install/setup.bash
-ros2 launch tm12s_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
-```
-
-### To test the gripper action, you can use the following commands:
+To test the gripper action, you can use the following commands:
 
 ```bash
 source install/setup.bash
