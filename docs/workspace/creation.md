@@ -2,7 +2,7 @@
 
 This document covers the interactive calibration flow that starts from `grasping_control/config/workspace_empty.yaml` and saves named workspace YAML files on demand.
 
-For how the runtime system consumes that file, see [arm_control.md](./arm_control.md).
+For how the runtime system consumes that file, see [arm_control.md](../control/arm_control.md).
 
 ## Purpose
 
