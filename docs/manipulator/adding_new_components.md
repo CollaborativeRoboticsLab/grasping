@@ -115,7 +115,7 @@ For this repository, the recommended split is:
 
 - MoveIt owns arm planning and, when desired, arm trajectory execution.
 - The gripper remains in the robot description and SRDF so collision checking and reachability reflect the real combined tool.
-- Gripper actuation stays external through dedicated actions such as `open_gripper` and `close_gripper` unless you specifically need synchronized arm+gripper trajectories.
+- Gripper actuation stays external through the standard `/gripper_command` action unless you specifically need synchronized arm+gripper trajectories.
 
 This keeps task logic simple: external code can plan with MoveIt, execute arm motion, and call gripper actions at grasp-specific phases without forcing the gripper behavior into MoveIt's controller model.
 
@@ -137,14 +137,14 @@ source install/setup.bash
 ros2 launch tm12s_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
 
-### To test the gripper actions, you can use the following commands:
+### To test the gripper action, you can use the following commands:
 
 ```bash
 source install/setup.bash
-ros2 action send_goal /open_gripper grasping_interfaces/action/GripperCommand "{command: {position: 0.08, max_effort: 5.0}}"
+ros2 action send_goal /gripper_command control_msgs/action/GripperCommand "{command: {position: 0.09, max_effort: 0.0}}"
 ```
 
 ```bash
 source install/setup.bash
-ros2 action send_goal /close_gripper grasping_interfaces/action/GripperCommand "{command: {position: 0.0, max_effort: 5.0}}"
-``  
+ros2 action send_goal /gripper_command control_msgs/action/GripperCommand "{command: {position: 0.0, max_effort: 5.0}}"
+```
