@@ -1,6 +1,6 @@
 # Manipulator Teleoperation
 
-This document covers manual UR10 jogging with the keyboard teleop node that publishes MoveIt Servo commands.
+This document covers manual UR10 jogging with the keyboard teleop node that publishes MoveIt Servo commands. Same can be used for the Omron TM12x arm and Omron Mobile Manipulator.
 
 ## Prerequisites
 
