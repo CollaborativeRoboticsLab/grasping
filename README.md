@@ -67,16 +67,18 @@ source install/setup.bash
 ros2 launch grasping_control ur10_soft_two_fingers.launch.py
 ```
 
-### For 'TM12s with soft two-finger gripper'
+### For `TM12s with soft two-finger gripper`
 
 ```bash
 source install/setup.bash
 ros2 launch grasping_control tm12s_soft_two_fingers.launch.py
 ```
 
-### For 'LD250 & TM12X with soft two-finger gripper'
+### For `LD250 & TM12X with soft two-finger gripper`
 
 ```bash
 source install/setup.bash
 ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py
 ``` 
+
+These MoveIt hardware stacks start the shared soft two-finger gripper action server on `/gripper_command` automatically. Use `ros2 launch gripper_ros gripper_soft_two_fingers.launch.py` only when testing the gripper without a manipulator MoveIt stack.

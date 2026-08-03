@@ -21,6 +21,8 @@ ros2 launch grasping_control ld250_tm12x_soft_two_fingers.launch.py tm_robot_ip:
 
 This wrapper includes `ld250_tm12x_soft_two_fingers_moveit_config/hardware_with_moveit.launch.py` when `use_demo:=false`, or the package demo launch when `use_demo:=true`. It also starts the `motion_execution_node` from `grasping_control`.
 
+The included hardware launch starts the shared soft two-finger gripper action server on `/gripper_command`. Do not start `gripper_ros gripper_soft_two_fingers.launch.py` separately with this stack unless you intentionally want an independent gripper-only session.
+
 It can also include the LD250 base hardware and Nav2 stack from `moma_ros` when requested, while still keeping the arm + gripper + MoveIt path as the default behavior.
 
 The launch file defines these primary arguments:

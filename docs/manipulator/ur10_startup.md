@@ -41,7 +41,9 @@ The wrapper itself defines these defaults:
 - `planner_id:=''`
 - `workspace_config_path:=<grasping_control_share>/config/crlab_table.yaml`
 
-The included `ur10_soft_two_fingers_moveit_config` launch still provides its own driver and MoveIt arguments, such as `robot_ip`, `launch_rviz`, and `initial_joint_controller`.
+The included `ur10_soft_two_fingers_moveit_config` launch still provides its own driver, MoveIt, and soft two-finger gripper action server on `/gripper_command`. It also provides arguments such as `robot_ip`, `launch_rviz`, and `initial_joint_controller`.
+
+Do not start `gripper_ros gripper_soft_two_fingers.launch.py` separately with this stack unless you intentionally want an independent gripper-only session.
 
 Override any of them on the command line when needed, for example
 
