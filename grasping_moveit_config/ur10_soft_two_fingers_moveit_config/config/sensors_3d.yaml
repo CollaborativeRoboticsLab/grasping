@@ -1,5 +1,0 @@
-sensors:
-  - disabled_sensor
-
-disabled_sensor:
-  sensor_plugin: "~disabled"
