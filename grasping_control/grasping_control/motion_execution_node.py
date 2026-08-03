@@ -232,7 +232,7 @@ class MotionExecutionNode(Node):
 		try:
 			feedback.state = 'loading_named_pose'
 			goal_handle.publish_feedback(feedback)
-			target_pose = self._get_named_pose_stamped(pose_name)
+			target_pose, target_frame = self._get_named_pose_target(pose_name)
 
 			feedback.state = 'transforming_target_pose'
 			goal_handle.publish_feedback(feedback)
@@ -254,7 +254,7 @@ class MotionExecutionNode(Node):
 
 			feedback.state = 'planning_and_executing'
 			goal_handle.publish_feedback(feedback)
-			ok, message = self._move_to_pose(target_pose)
+			ok, message = self._move_to_pose(target_pose, target_frame)
 
 		except Exception as exc:  # noqa: BLE001
 			ok = False
@@ -276,8 +276,11 @@ class MotionExecutionNode(Node):
 		"""
 		pose_names = self._configured_pose_names()
 		for pose_name in pose_names:
-			if not self.has_parameter(pose_name):
-				self.declare_parameter(pose_name, [0.0, 0.0, 0.30, 0.0, 0.0, 0.0])
+			for parameter_key in self._configured_pose_parameter_keys(pose_name):
+				if not self.has_parameter(f'{parameter_key}.pose'):
+					self.declare_parameter(f'{parameter_key}.pose', [0.0, 0.0, 0.30, 0.0, 0.0, 0.0])
+				if not self.has_parameter(f'{parameter_key}.target_frame'):
+					self.declare_parameter(f'{parameter_key}.target_frame', '')
 
 		if pose_names:
 			self.get_logger().info('Configured motion pose parameters: ' + ', '.join(pose_names))
@@ -536,25 +539,60 @@ class MotionExecutionNode(Node):
 		@param pose_name Requested pose name.
 		@return True when the pose name is allowed and has pose values.
 		"""
-		return pose_name in self._configured_pose_names() and self.has_parameter(pose_name)
+		return pose_name in self._configured_pose_names()
 
-	def _get_named_pose_stamped(self, pose_name: str) -> PoseStamped:
+	def _configured_pose_parameter_keys(self, pose_name: str) -> List[str]:
 		"""
-		@brief Return a configured named pose as a PoseStamped.
+		@brief Return parameter key variants for a configured pose name.
+
+		@param pose_name Name from poses_list.
+		@return Candidate parameter prefixes, including the suffixless YAML form.
+		"""
+		parameter_keys = [pose_name]
+		if pose_name.endswith('_pose'):
+			parameter_keys.append(pose_name.removesuffix('_pose'))
+		return parameter_keys
+
+	def _configured_pose_parameter_key(self, pose_name: str) -> str:
+		"""
+		@brief Return the parameter prefix containing the configured pose data.
+
+		@param pose_name Name from poses_list.
+		@return Structured parameter prefix for pose data.
+		"""
+		default_pose = [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+		for parameter_key in self._configured_pose_parameter_keys(pose_name):
+			target_frame = str(self.get_parameter(f'{parameter_key}.target_frame').value).strip()
+			pose_values = self._coerce_float_sequence(
+				self.get_parameter(f'{parameter_key}.pose').value,
+				6,
+				f'{parameter_key}.pose',
+			)
+			if target_frame or pose_values != default_pose:
+				return parameter_key
+		return self._configured_pose_parameter_keys(pose_name)[0]
+
+	def _get_named_pose_target(self, pose_name: str) -> tuple[PoseStamped, str]:
+		"""
+		@brief Return a configured named pose and the frame that should reach it.
 
 		@param pose_name Name from motion_config.yaml.
-		@return PoseStamped in the workspace area frame or planning frame.
+		@return PoseStamped in the workspace area frame or planning frame, plus target frame.
 		"""
 		if not self._configured_pose_exists(pose_name):
 			raise RuntimeError(
 				f"Unknown configured pose '{pose_name}'. Available poses: {', '.join(self._configured_pose_names())}"
 			)
 
+		parameter_key = self._configured_pose_parameter_key(pose_name)
 		pose_values = self._coerce_float_sequence(
-			self.get_parameter(pose_name).value,
+			self.get_parameter(f'{parameter_key}.pose').value,
 			6,
-			pose_name,
+			f'{parameter_key}.pose',
 		)
+		target_frame = str(self.get_parameter(f'{parameter_key}.target_frame').value).strip()
+		if not target_frame:
+			target_frame = str(self.get_parameter('end_effector_link').value)
 		workspace_to_end_effector_height = float(
 			self.get_parameter('workspace_to_end_effector_height').value
 		)
@@ -573,9 +611,9 @@ class MotionExecutionNode(Node):
 					pose_values[4],
 					pose_values[5],
 				],
-			)
+			), target_frame
 
-		return self._pose_stamped_from_values(self._planning_frame, pose_values)
+		return self._pose_stamped_from_values(self._planning_frame, pose_values), target_frame
 
 	def _pose_stamped_from_values(self, frame: str, pose_values: List[float]) -> PoseStamped:
 		"""
@@ -758,11 +796,12 @@ class MotionExecutionNode(Node):
 
 		self._workspace_area_marker_publisher.publish(marker)
 
-	def _move_to_pose(self, target_pose: PoseStamped) -> tuple[bool, str]:
+	def _move_to_pose(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> tuple[bool, str]:
 		"""
 		@brief Send a MoveGroup action goal for the requested target pose.
 
 		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
 		@return Tuple of success flag and status message.
 		"""
 		action_name = str(self.get_parameter('move_group_action_name').value)
@@ -771,7 +810,7 @@ class MotionExecutionNode(Node):
 
 		# The custom action stays thin and delegates actual motion execution to MoveIt so the
 		# rest of the system can talk to one stable arm-control interface.
-		goal = self._build_move_group_goal(target_pose)
+		goal = self._build_move_group_goal(target_pose, target_frame)
 
 		send_future = self._movegroup_client.send_goal_async(goal)
 		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
@@ -793,15 +832,16 @@ class MotionExecutionNode(Node):
 
 		return True, 'Arm motion completed successfully.'
 
-	def _build_move_group_goal(self, target_pose: PoseStamped) -> MoveGroup.Goal:
+	def _build_move_group_goal(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> MoveGroup.Goal:
 		"""
 		@brief Build a MoveGroup action goal for a target pose.
 
 		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
 		@return Configured MoveGroup goal.
 		"""
 		goal = MoveGroup.Goal()
-		goal.request = self._build_motion_plan_request(target_pose)
+		goal.request = self._build_motion_plan_request(target_pose, target_frame)
 		goal.planning_options = PlanningOptions()
 		goal.planning_options.plan_only = False
 		goal.planning_options.look_around = False
@@ -809,11 +849,12 @@ class MotionExecutionNode(Node):
 		goal.planning_options.replan_attempts = 0
 		return goal
 
-	def _build_motion_plan_request(self, target_pose: PoseStamped) -> MotionPlanRequest:
+	def _build_motion_plan_request(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> MotionPlanRequest:
 		"""
 		@brief Construct a MoveIt motion planning request for a pose goal.
 
 		@param target_pose Goal pose expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
 		@return Configured MotionPlanRequest instance.
 		"""
 		request = MotionPlanRequest()
@@ -831,17 +872,18 @@ class MotionExecutionNode(Node):
 			request.planner_id = planner_id
 
 		request.start_state = RobotState()
-		request.goal_constraints = [self._pose_to_constraints(target_pose)]
+		request.goal_constraints = [self._pose_to_constraints(target_pose, target_frame)]
 		return request
 
-	def _pose_to_constraints(self, target_pose: PoseStamped) -> Constraints:
+	def _pose_to_constraints(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> Constraints:
 		"""
 		@brief Convert a target pose into MoveIt position and orientation constraints.
 
 		@param target_pose Goal pose expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
 		@return Constraints object for the planner.
 		"""
-		ee_link = str(self.get_parameter('end_effector_link').value)
+		ee_link = str(target_frame or self.get_parameter('end_effector_link').value)
 		pos_tol = float(self.get_parameter('position_tolerance_m').value)
 		ori_tol = float(self.get_parameter('orientation_tolerance_rad').value)
 

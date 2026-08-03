@@ -19,6 +19,12 @@ motion_execution_node:
       - workspace_center_pose
       - pre_grasp_pose
       - post_grasp_pose
-    workspace_center_pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
-    pre_grasp_pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
-    post_grasp_pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+    workspace_center:
+      pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+      target_frame: camera_link
+    pre_grasp:
+      pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+      target_frame: tcp
+    post_grasp:
+      pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+      target_frame: tcp
