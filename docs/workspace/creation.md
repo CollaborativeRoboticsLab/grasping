@@ -214,7 +214,7 @@ source install/setup.bash
 ros2 run grasping_control workspace_creation
 ```
 
-- Modify an existing workspace calibration:
+- OR Modify an existing workspace calibration:
 
 ```bash
 source install/setup.bash
