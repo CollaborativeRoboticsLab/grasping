@@ -1,42 +1,47 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import math
 from typing import Any, Dict, List, Optional
 
 from geometry_msgs.msg import Point, PoseStamped
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
+from rclpy.time import Time
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
+from sensor_msgs.msg import JointState
 
 from grasping_control.common import (
-	Quaternion,
-	normalize_quaternion,
+	coerce_float_sequence,
+	coerce_string_sequence,
+	nearest_equivalent_angle,
+	quaternion_from_rpy,
 	transform_pose_to_frame,
+)
+from grasping_control.motion_utils import (
+	MotionPlanningConfig,
+	allowed_collision_pairs_from_workspace,
+	append_allowed_collision_pairs,
+	build_joint_move_group_goal,
+	build_move_group_goal,
+	robot_state_from_joint_state,
 )
 from grasping_control.workspace_utils import (
 	collision_objects_from_workspace,
+	default_workspace_config,
 	point_in_workspace_area,
+	workspace_config_from_node_parameters,
 )
 from grasping_msgs.action import MoveToNamedPose, MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
-	AllowedCollisionEntry,
 	AllowedCollisionMatrix,
-	BoundingVolume,
-	Constraints,
-	MotionPlanRequest,
 	MoveItErrorCodes,
-	OrientationConstraint,
-	PlanningOptions,
 	PlanningScene,
 	PlanningSceneComponents,
-	PositionConstraint,
 	RobotState,
 )
-from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
-from shape_msgs.msg import SolidPrimitive
+from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene, GetPositionIK
 import tf2_ros
 from visualization_msgs.msg import Marker
 
@@ -70,9 +75,30 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('poses_list', [])
 		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
 		self.declare_parameter('get_planning_scene_service', '/get_planning_scene')
+		self.declare_parameter('compute_ik_service', '/compute_ik')
+		self.declare_parameter('joint_state_topic', '/joint_states')
+		self.declare_parameter(
+			'planning_joint_names',
+			[
+				'shoulder_pan_joint',
+				'shoulder_lift_joint',
+				'elbow_joint',
+				'wrist_1_joint',
+				'wrist_2_joint',
+				'wrist_3_joint',
+			],
+		)
+		self.declare_parameter('prefer_nearby_ik', True)
+		self.declare_parameter('fallback_to_pose_planning_on_ik_failure', True)
+		self.declare_parameter('joint_state_timeout_sec', 0.5)
+		self.declare_parameter('ik_timeout_sec', 0.2)
+		self.declare_parameter('joint_goal_tolerance_rad', 0.001)
+		self.declare_parameter('log_joint_goal_deltas', False)
 		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
+		self._latest_joint_state: Optional[JointState] = None
+		self._latest_joint_state_received_at: Optional[Time] = None
 		self._declare_workspace_parameters()
 		self._workspace_area: Optional[Dict[str, Any]] = None
 		self._workspace_area_frame = self._planning_frame
@@ -106,6 +132,16 @@ class MotionExecutionNode(Node):
 			GetPlanningScene,
 			str(self.get_parameter('get_planning_scene_service').value),
 		)
+		self._compute_ik_client = self.create_client(
+			GetPositionIK,
+			str(self.get_parameter('compute_ik_service').value),
+		)
+		self._joint_state_subscription = self.create_subscription(
+			JointState,
+			str(self.get_parameter('joint_state_topic').value),
+			self._joint_state_callback,
+			10,
+		)
 		self._grasp_pose_action_server = ActionServer(
 			self,
 			MoveToPose,
@@ -132,6 +168,10 @@ class MotionExecutionNode(Node):
 		)
 		self.get_logger().info(
 			f"Named-pose action server ready on {self.get_parameter('named_pose_action_name').value}"
+		)
+		self.get_logger().info(
+			'Nearby IK preference is '
+			+ ('enabled' if self._get_bool_parameter('prefer_nearby_ik') else 'disabled')
 		)
 
 	def destroy_node(self) -> bool:
@@ -174,6 +214,15 @@ class MotionExecutionNode(Node):
 		@return Cancel acceptance decision.
 		"""
 		return CancelResponse.ACCEPT
+
+	def _joint_state_callback(self, msg: JointState) -> None:
+		"""
+		@brief Cache the latest robot joint state for nearby-IK seeding.
+
+		@param msg Latest joint state message.
+		"""
+		self._latest_joint_state = deepcopy(msg)
+		self._latest_joint_state_received_at = self.get_clock().now()
 
 	def _execute_move_to_pose(self, goal_handle: Any) -> MoveToPose.Result:
 		"""
@@ -398,103 +447,28 @@ class MotionExecutionNode(Node):
 
 		@return Workspace configuration in the runtime collision-object shape.
 		"""
-		workspace_config: Dict[str, Any] = {
-			'version': int(self.get_parameter('workspace.version').value),
-			'updated_at': str(self.get_parameter('workspace.updated_at').value),
-			'base_frame': str(self.get_parameter('workspace.base_frame').value),
-			'tool_frame': str(self.get_parameter('workspace.tool_frame').value),
-			'ground_plane_z': float(self.get_parameter('workspace.ground_plane_z').value),
-			'workspace_area': None,
-			'objects': [],
-		}
+		workspace_config = workspace_config_from_node_parameters(
+			self,
+			default_workspace_config(
+				self._planning_frame,
+				str(self.get_parameter('workspace.tool_frame').value),
+				float(self.get_parameter('workspace.ground_plane_z').value),
+			),
+		)
 
-		if self._get_bool_parameter('workspace_area.enabled'):
-			workspace_config['workspace_area'] = {
-				'geometry': self._workspace_area_geometry_from_parameters(),
-			}
-
-		for object_name in self._workspace_object_names():
-			workspace_object = self._workspace_object_from_parameters(object_name)
-			if workspace_object is not None:
-				workspace_config['objects'].append(workspace_object)
+		valid_object_names = set(self._workspace_object_names())
+		workspace_config['objects'] = [
+			workspace_object
+			for workspace_object in workspace_config.get('objects', [])
+			if str(workspace_object.get('name', '')).strip() in valid_object_names
+		]
+		for object_name in valid_object_names:
+			if not any(str(obj.get('name', '')).strip() == object_name for obj in workspace_config['objects']):
+				self.get_logger().warn(
+					f"Skipping workspace object '{object_name}' because geometry type is empty."
+				)
 
 		return workspace_config
-
-	def _workspace_area_geometry_from_parameters(self) -> Dict[str, Any]:
-		"""
-		@brief Build workspace-area geometry from ROS parameters.
-		"""
-		dimensions = self._coerce_float_sequence(
-			self.get_parameter('workspace_area.geometry.dimensions').value,
-			2,
-			'workspace_area.geometry.dimensions',
-		)
-		corner_x = self._coerce_float_sequence(
-			self.get_parameter('workspace_area.geometry.corner_points.x').value,
-			4,
-			'workspace_area.geometry.corner_points.x',
-		)
-		corner_y = self._coerce_float_sequence(
-			self.get_parameter('workspace_area.geometry.corner_points.y').value,
-			4,
-			'workspace_area.geometry.corner_points.y',
-		)
-		corner_z = self._coerce_float_sequence(
-			self.get_parameter('workspace_area.geometry.corner_points.z').value,
-			4,
-			'workspace_area.geometry.corner_points.z',
-		)
-
-		return {
-			'type': str(self.get_parameter('workspace_area.geometry.type').value),
-			'dimensions': {
-				'side_length': dimensions[0],
-				'height_from_ground': dimensions[1],
-			},
-			'pose': self._pose_dict_from_parameters('workspace_area.geometry.pose'),
-			'corner_points': [
-				{'x': corner_x[index], 'y': corner_y[index], 'z': corner_z[index]}
-				for index in range(4)
-			],
-		}
-
-	def _workspace_object_from_parameters(self, object_name: str) -> Optional[Dict[str, Any]]:
-		"""
-		@brief Build one workspace object dictionary from ROS parameters.
-		"""
-		prefix = f'workspace_object.{object_name}'
-		geometry_type = str(self.get_parameter(f'{prefix}.geometry.type').value)
-		if not geometry_type:
-			self.get_logger().warn(f"Skipping workspace object '{object_name}' because geometry type is empty.")
-			return None
-
-		dimensions = self._coerce_float_sequence(
-			self.get_parameter(f'{prefix}.geometry.dimensions').value,
-			3 if geometry_type == 'box' else 2,
-			f'{prefix}.geometry.dimensions',
-		)
-		if geometry_type == 'box':
-			dimensions_dict = {'x': dimensions[0], 'y': dimensions[1], 'z': dimensions[2]}
-		else:
-			dimensions_dict = {'height': dimensions[0], 'radius': dimensions[1]}
-
-		workspace_object: Dict[str, Any] = {
-			'name': object_name,
-			'geometry': {
-				'type': geometry_type,
-				'dimensions': dimensions_dict,
-				'pose': self._pose_dict_from_parameters(f'{prefix}.geometry.pose'),
-			},
-		}
-		shape = str(self.get_parameter(f'{prefix}.shape').value)
-		if shape:
-			workspace_object['shape'] = shape
-		allowed_collision_links = self._coerce_string_sequence(
-			self.get_parameter(f'{prefix}.allowed_collision_links').value
-		)
-		if allowed_collision_links:
-			workspace_object['allowed_collision_links'] = allowed_collision_links
-		return workspace_object
 
 	def _allowed_collision_matrix_from_workspace(
 		self,
@@ -508,20 +482,7 @@ class MotionExecutionNode(Node):
 		@param collision_object_names Object ids that were added to the planning scene.
 		@return Merged allowed collision matrix, or None when no pairs are configured.
 		"""
-		valid_objects = set(collision_object_names)
-		pairs: List[tuple[str, str]] = []
-
-		for workspace_object in workspace_config.get('objects', []):
-			object_name = str(workspace_object.get('name', '')).strip()
-			if object_name not in valid_objects:
-				continue
-			for link_name in self._coerce_string_sequence(
-				workspace_object.get('allowed_collision_links', [])
-			):
-				pair = (object_name, link_name)
-				if pair not in pairs:
-					pairs.append(pair)
-
+		pairs = allowed_collision_pairs_from_workspace(workspace_config, collision_object_names)
 		if not pairs:
 			return None
 
@@ -533,9 +494,7 @@ class MotionExecutionNode(Node):
 			)
 			return None
 
-		matrix = deepcopy(matrix)
-		for object_name, link_name in pairs:
-			self._set_allowed_collision(matrix, object_name, link_name)
+		matrix = append_allowed_collision_pairs(matrix, pairs)
 
 		formatted_pairs = [f'{object_name}<->{link_name}' for object_name, link_name in pairs]
 		self.get_logger().info('Appended workspace allowed collisions: ' + ', '.join(formatted_pairs))
@@ -560,95 +519,11 @@ class MotionExecutionNode(Node):
 			return None
 		return future.result().scene.allowed_collision_matrix
 
-	def _set_allowed_collision(
-		self,
-		matrix: AllowedCollisionMatrix,
-		first_name: str,
-		second_name: str,
-	) -> None:
-		"""
-		@brief Mark one collision pair as allowed in an existing collision matrix.
-
-		@param matrix Matrix to mutate.
-		@param first_name First link/object name.
-		@param second_name Second link/object name.
-		"""
-		first_index = self._ensure_allowed_collision_entry(matrix, first_name)
-		second_index = self._ensure_allowed_collision_entry(matrix, second_name)
-		matrix.entry_values[first_index].enabled[second_index] = True
-		matrix.entry_values[second_index].enabled[first_index] = True
-
-	def _ensure_allowed_collision_entry(self, matrix: AllowedCollisionMatrix, entry_name: str) -> int:
-		"""
-		@brief Ensure a link/object has a row and column in the allowed collision matrix.
-
-		@param matrix Matrix to mutate.
-		@param entry_name Link or object name.
-		@return Index of the entry.
-		"""
-		self._normalize_allowed_collision_matrix(matrix)
-		if entry_name in matrix.entry_names:
-			return matrix.entry_names.index(entry_name)
-
-		matrix.entry_names.append(entry_name)
-		for entry in matrix.entry_values:
-			entry.enabled.append(False)
-
-		new_entry = AllowedCollisionEntry()
-		new_entry.enabled = [False] * len(matrix.entry_names)
-		matrix.entry_values.append(new_entry)
-		return len(matrix.entry_names) - 1
-
-	@staticmethod
-	def _normalize_allowed_collision_matrix(matrix: AllowedCollisionMatrix) -> None:
-		"""
-		@brief Make sure the matrix dimensions match its entry names.
-
-		@param matrix Matrix to normalize in place.
-		"""
-		size = len(matrix.entry_names)
-		while len(matrix.entry_values) < size:
-			entry = AllowedCollisionEntry()
-			entry.enabled = [False] * size
-			matrix.entry_values.append(entry)
-		for entry in matrix.entry_values:
-			if len(entry.enabled) < size:
-				entry.enabled.extend([False] * (size - len(entry.enabled)))
-
-	def _pose_dict_from_parameters(self, prefix: str) -> Dict[str, Any]:
-		"""
-		@brief Build a pose dictionary from position and orientation parameter arrays.
-		"""
-		position = self._coerce_float_sequence(
-			self.get_parameter(f'{prefix}.position').value,
-			3,
-			f'{prefix}.position',
-		)
-		orientation = self._coerce_float_sequence(
-			self.get_parameter(f'{prefix}.orientation').value,
-			4,
-			f'{prefix}.orientation',
-		)
-		return {
-			'position': {'x': position[0], 'y': position[1], 'z': position[2]},
-			'orientation': {
-				'x': orientation[0],
-				'y': orientation[1],
-				'z': orientation[2],
-				'w': orientation[3],
-			},
-		}
-
 	def _workspace_object_names(self) -> List[str]:
 		"""
 		@brief Return configured workspace object names.
 		"""
-		workspace_objects = self.get_parameter('workspace_objects').value
-		if isinstance(workspace_objects, str):
-			workspace_objects = [item.strip() for item in workspace_objects.strip('[]()').split(',')]
-		if not isinstance(workspace_objects, list):
-			return []
-		return [str(name).strip() for name in workspace_objects if str(name).strip()]
+		return coerce_string_sequence(self.get_parameter('workspace_objects').value)
 
 	def _configured_pose_names(self) -> List[str]:
 		"""
@@ -658,7 +533,7 @@ class MotionExecutionNode(Node):
 		"""
 		poses_names = self.get_parameter('poses_names').value
 		if isinstance(poses_names, str):
-			poses_names = [item.strip() for item in poses_names.strip('[]()').split(',') if item.strip()]
+			poses_names = coerce_string_sequence(poses_names)
 		if isinstance(poses_names, list):
 			configured_names = [str(name).strip() for name in poses_names if str(name).strip()]
 			if configured_names:
@@ -666,7 +541,7 @@ class MotionExecutionNode(Node):
 
 		poses_list = self.get_parameter('poses_list').value
 		if isinstance(poses_list, str):
-			poses_list = [item.strip() for item in poses_list.strip('[]()').split(',') if item.strip()]
+			poses_list = coerce_string_sequence(poses_list)
 		if not isinstance(poses_list, list):
 			return []
 		return [str(name).strip() for name in poses_list if str(name).strip()]
@@ -716,7 +591,7 @@ class MotionExecutionNode(Node):
 		default_pose = [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
 		for parameter_key in self._configured_pose_parameter_keys(pose_name):
 			target_frame = str(self.get_parameter(f'{parameter_key}.target_frame').value).strip()
-			pose_values = self._coerce_float_sequence(
+			pose_values = coerce_float_sequence(
 				self.get_parameter(f'{parameter_key}.pose').value,
 				6,
 				f'{parameter_key}.pose',
@@ -738,7 +613,7 @@ class MotionExecutionNode(Node):
 			)
 
 		parameter_key = self._configured_pose_parameter_key(pose_name)
-		pose_values = self._coerce_float_sequence(
+		pose_values = coerce_float_sequence(
 			self.get_parameter(f'{parameter_key}.pose').value,
 			6,
 			f'{parameter_key}.pose',
@@ -763,43 +638,12 @@ class MotionExecutionNode(Node):
 		pose_stamped.pose.position.x = pose_values[0]
 		pose_stamped.pose.position.y = pose_values[1]
 		pose_stamped.pose.position.z = pose_values[2]
-		orientation = self._quaternion_from_rpy(pose_values[3], pose_values[4], pose_values[5])
+		orientation = quaternion_from_rpy(pose_values[3], pose_values[4], pose_values[5])
 		pose_stamped.pose.orientation.x = orientation.x
 		pose_stamped.pose.orientation.y = orientation.y
 		pose_stamped.pose.orientation.z = orientation.z
 		pose_stamped.pose.orientation.w = orientation.w
 		return pose_stamped
-
-	def _coerce_float_sequence(self, value: Any, expected_length: int, name: str) -> List[float]:
-		"""
-		@brief Convert a fixed-length sequence-like value into floats.
-
-		@param value Sequence value from YAML or parameters.
-		@param expected_length Required number of values.
-		@param name Human-readable value name for error messages.
-		@return Parameter values as floats.
-		"""
-		if isinstance(value, str):
-			items = [item.strip() for item in value.strip('[]()').split(',') if item.strip()]
-		else:
-			items = list(value)
-
-		if len(items) != expected_length:
-			raise RuntimeError(f"'{name}' must contain {expected_length} values.")
-		return [float(item) for item in items]
-
-	def _coerce_string_sequence(self, value: Any) -> List[str]:
-		"""
-		@brief Convert a parameter value into a list of non-empty strings.
-
-		@param value String or sequence-like parameter value.
-		@return Clean string values.
-		"""
-		if isinstance(value, str):
-			items = [item.strip() for item in value.strip('[]()').split(',')]
-		else:
-			items = list(value)
-		return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
 
 	def _get_bool_parameter(self, name: str) -> bool:
 		"""
@@ -812,32 +656,6 @@ class MotionExecutionNode(Node):
 		if isinstance(value, str):
 			return value.strip().lower() in {'1', 'true', 'yes', 'on'}
 		return bool(value)
-
-	@staticmethod
-	def _quaternion_from_rpy(roll: float, pitch: float, yaw: float) -> Quaternion:
-		"""
-		@brief Convert roll-pitch-yaw Euler angles to a quaternion.
-
-		@param roll Roll angle in radians.
-		@param pitch Pitch angle in radians.
-		@param yaw Yaw angle in radians.
-		@return Equivalent normalized quaternion.
-		"""
-		cy = math.cos(yaw * 0.5)
-		sy = math.sin(yaw * 0.5)
-		cp = math.cos(pitch * 0.5)
-		sp = math.sin(pitch * 0.5)
-		cr = math.cos(roll * 0.5)
-		sr = math.sin(roll * 0.5)
-
-		return normalize_quaternion(
-			Quaternion(
-				sr * cp * cy - cr * sp * sy,
-				cr * sp * cy + sr * cp * sy,
-				cr * cp * sy - sr * sp * cy,
-				cr * cp * cy + sr * sp * sy,
-			)
-		)
 
 	def _target_pose_in_workspace_area(self, target_pose: PoseStamped) -> bool:
 		"""
@@ -928,7 +746,32 @@ class MotionExecutionNode(Node):
 
 		# The custom action stays thin and delegates actual motion execution to MoveIt so the
 		# rest of the system can talk to one stable arm-control interface.
-		goal = self._build_move_group_goal(target_pose, target_frame)
+		goal: MoveGroup.Goal
+		if self._get_bool_parameter('prefer_nearby_ik'):
+			ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose, target_frame)
+			if ik_ok:
+				goal = build_joint_move_group_goal(
+					ik_payload['joint_state'],
+					self._motion_planning_config(),
+					ik_payload['start_state'],
+				)
+			else:
+				if not self._get_bool_parameter('fallback_to_pose_planning_on_ik_failure'):
+					return False, ik_message
+				self.get_logger().warn(
+					ik_message + ' Falling back to pose-constrained planning request.'
+				)
+				goal = self._build_move_group_goal(
+					target_pose,
+					target_frame,
+					self._current_robot_state_or_none(),
+				)
+		else:
+			goal = self._build_move_group_goal(
+				target_pose,
+				target_frame,
+				self._current_robot_state_or_none(),
+			)
 
 		send_future = self._movegroup_client.send_goal_async(goal)
 		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
@@ -946,105 +789,284 @@ class MotionExecutionNode(Node):
 
 		result = result_future.result().result
 		if result.error_code.val != MoveItErrorCodes.SUCCESS:
-			return False, f'MoveGroup failed with error code: {result.error_code.val}'
+			return (
+				False,
+				'MoveGroup failed with '
+				+ self._describe_moveit_error_code(result.error_code.val),
+			)
 
 		return True, 'Arm motion completed successfully.'
 
-	def _build_move_group_goal(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> MoveGroup.Goal:
+	def _build_move_group_goal(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str] = None,
+		start_state: Optional[RobotState] = None,
+	) -> MoveGroup.Goal:
 		"""
 		@brief Build a MoveGroup action goal for a target pose.
 
 		@param target_pose Goal pose already expressed in the planning frame.
 		@param target_frame Robot frame/link that should reach the target pose.
+		@param start_state Optional robot state used as the planner start state.
 		@return Configured MoveGroup goal.
 		"""
-		goal = MoveGroup.Goal()
-		goal.request = self._build_motion_plan_request(target_pose, target_frame)
-		goal.planning_options = PlanningOptions()
-		goal.planning_options.plan_only = False
-		goal.planning_options.look_around = False
-		goal.planning_options.replan = False
-		goal.planning_options.replan_attempts = 0
-		return goal
-
-	def _build_motion_plan_request(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> MotionPlanRequest:
-		"""
-		@brief Construct a MoveIt motion planning request for a pose goal.
-
-		@param target_pose Goal pose expressed in the planning frame.
-		@param target_frame Robot frame/link that should reach the target pose.
-		@return Configured MotionPlanRequest instance.
-		"""
-		request = MotionPlanRequest()
-		request.group_name = str(self.get_parameter('planning_group').value)
-		request.allowed_planning_time = float(self.get_parameter('allowed_planning_time').value)
-		request.num_planning_attempts = int(self.get_parameter('num_planning_attempts').value)
-		request.max_velocity_scaling_factor = float(self.get_parameter('max_velocity_scaling').value)
-		request.max_acceleration_scaling_factor = float(self.get_parameter('max_acceleration_scaling').value)
-
-		pipeline_id = str(self.get_parameter('planning_pipeline_id').value)
-		planner_id = str(self.get_parameter('planner_id').value)
-		if pipeline_id:
-			request.pipeline_id = pipeline_id
-		if planner_id:
-			request.planner_id = planner_id
-
-		request.start_state = RobotState()
-		request.goal_constraints = [self._pose_to_constraints(target_pose, target_frame)]
-		return request
-
-	def _pose_to_constraints(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> Constraints:
-		"""
-		@brief Convert a target pose into MoveIt position and orientation constraints.
-
-		@param target_pose Goal pose expressed in the planning frame.
-		@param target_frame Robot frame/link that should reach the target pose.
-		@return Constraints object for the planner.
-		"""
-		ee_link = str(target_frame or self.get_parameter('end_effector_link').value)
-		pos_tol = float(self.get_parameter('position_tolerance_m').value)
-		ori_tol = float(self.get_parameter('orientation_tolerance_rad').value)
-
-		# Position is represented as a sphere tolerance around the requested TCP target.
-		sphere = SolidPrimitive()
-		sphere.type = SolidPrimitive.SPHERE
-		sphere.dimensions = [max(1e-4, pos_tol)]
-
-		volume = BoundingVolume()
-		volume.primitives = [sphere]
-		volume.primitive_poses = [target_pose.pose]
-
-		position_constraint = PositionConstraint()
-		position_constraint.header.frame_id = self._planning_frame
-		position_constraint.link_name = ee_link
-		position_constraint.constraint_region = volume
-
-		# Orientation is normalized before building constraints so invalid inputs do not leak
-		# into the planner and cause confusing failures.
-		normalized = normalize_quaternion(
-			Quaternion(
-				target_pose.pose.orientation.x,
-				target_pose.pose.orientation.y,
-				target_pose.pose.orientation.z,
-				target_pose.pose.orientation.w,
-			)
+		return build_move_group_goal(
+			target_pose,
+			self._motion_planning_config(),
+			target_frame,
+			start_state,
 		)
-		orientation_constraint = OrientationConstraint()
-		orientation_constraint.header.frame_id = self._planning_frame
-		orientation_constraint.link_name = ee_link
-		orientation_constraint.orientation.x = normalized.x
-		orientation_constraint.orientation.y = normalized.y
-		orientation_constraint.orientation.z = normalized.z
-		orientation_constraint.orientation.w = normalized.w
-		orientation_constraint.absolute_x_axis_tolerance = ori_tol
-		orientation_constraint.absolute_y_axis_tolerance = ori_tol
-		orientation_constraint.absolute_z_axis_tolerance = ori_tol
-		orientation_constraint.weight = 1.0
 
-		constraints = Constraints()
-		constraints.position_constraints = [position_constraint]
-		constraints.orientation_constraints = [orientation_constraint]
-		return constraints
+	def _joint_goal_from_nearby_ik(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+	) -> tuple[bool, Dict[str, Any], str]:
+		"""
+		@brief Compute a nearby IK solution and convert it into a joint goal.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@return Success flag, payload with current/joint target state, and status message.
+		"""
+		current_joint_state, state_message = self._current_planning_joint_state()
+		if current_joint_state is None:
+			return False, {}, 'Nearby IK unavailable: ' + state_message
+
+		start_state = robot_state_from_joint_state(current_joint_state)
+		ik_solution, ik_message = self._compute_nearby_ik_solution(target_pose, target_frame, start_state)
+		if ik_solution is None:
+			return False, {}, ik_message
+
+		target_joint_state = self._planning_joint_state_from_robot_state(ik_solution)
+		if target_joint_state is None:
+			return (
+				False,
+				{},
+				'Nearby IK returned an incomplete joint solution for planning joints '
+				+ ', '.join(self._planning_joint_names())
+			)
+
+		target_joint_state = self._unwrap_joint_state_near_current(target_joint_state, current_joint_state)
+		self._log_joint_goal_deltas(current_joint_state, target_joint_state)
+		return True, {
+			'joint_state': target_joint_state,
+			'start_state': start_state,
+		}, 'Nearby IK selected a joint-space goal.'
+
+	def _current_planning_joint_state(self) -> tuple[Optional[JointState], str]:
+		"""
+		@brief Return the latest fresh JointState restricted to the configured planning joints.
+
+		@return Planning-joint JointState plus a status message.
+		"""
+		if self._latest_joint_state is None or self._latest_joint_state_received_at is None:
+			return None, 'no /joint_states message has been received yet.'
+
+		timeout_sec = float(self.get_parameter('joint_state_timeout_sec').value)
+		if timeout_sec > 0.0:
+			age_sec = (self.get_clock().now() - self._latest_joint_state_received_at).nanoseconds / 1e9
+			if age_sec > timeout_sec:
+				return None, (
+					f'latest /joint_states sample is stale ({age_sec:.3f}s old, '
+					f'timeout {timeout_sec:.3f}s).'
+				)
+
+		positions_by_name = self._joint_positions_by_name(self._latest_joint_state)
+		planning_joint_names = self._planning_joint_names()
+		missing_joint_names = [name for name in planning_joint_names if name not in positions_by_name]
+		if missing_joint_names:
+			return None, 'latest /joint_states message is missing planning joints: ' + ', '.join(missing_joint_names)
+
+		return self._joint_state_from_positions(planning_joint_names, positions_by_name), 'ok'
+
+	def _current_robot_state_or_none(self) -> Optional[RobotState]:
+		"""
+		@brief Return the current planning-joint state wrapped as a RobotState when available.
+
+		@return Current RobotState, or None when fresh joint data is unavailable.
+		"""
+		current_joint_state, _ = self._current_planning_joint_state()
+		if current_joint_state is None:
+			return None
+		return robot_state_from_joint_state(current_joint_state)
+
+	def _compute_nearby_ik_solution(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		start_state: RobotState,
+	) -> tuple[Optional[RobotState], str]:
+		"""
+		@brief Request one IK solution seeded with the current planning-joint state.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param start_state Current robot state used to seed IK.
+		@return IK solution RobotState plus a status message.
+		"""
+		service_name = str(self.get_parameter('compute_ik_service').value)
+		if not self._compute_ik_client.wait_for_service(timeout_sec=2.0):
+			return None, f"GetPositionIK service '{service_name}' is not available."
+
+		request = GetPositionIK.Request()
+		request.ik_request.group_name = str(self.get_parameter('planning_group').value)
+		request.ik_request.robot_state = start_state
+		request.ik_request.avoid_collisions = True
+		request.ik_request.ik_link_name = str(target_frame or self.get_parameter('end_effector_link').value)
+		request.ik_request.pose_stamped = target_pose
+		request.ik_request.timeout = rclpy.duration.Duration(
+			seconds=float(self.get_parameter('ik_timeout_sec').value)
+		).to_msg()
+
+		future = self._compute_ik_client.call_async(request)
+		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+		if not future.done() or future.result() is None:
+			return None, 'Nearby IK request did not complete before the client timeout.'
+
+		response = future.result()
+		if response.error_code.val != MoveItErrorCodes.SUCCESS:
+			return (
+				None,
+				'Nearby IK failed with '
+				+ self._describe_moveit_error_code(response.error_code.val)
+				+ f" for group '{request.ik_request.group_name}' and link '{request.ik_request.ik_link_name}'.",
+			)
+		return response.solution, 'ok'
+
+	def _planning_joint_state_from_robot_state(self, robot_state: RobotState) -> Optional[JointState]:
+		"""
+		@brief Extract planning joints from a MoveIt RobotState.
+
+		@param robot_state MoveIt RobotState returned by IK.
+		@return JointState ordered by planning_joint_names, or None when incomplete.
+		"""
+		positions_by_name = self._joint_positions_by_name(robot_state.joint_state)
+		planning_joint_names = self._planning_joint_names()
+		missing_joint_names = [name for name in planning_joint_names if name not in positions_by_name]
+		if missing_joint_names:
+			self.get_logger().warn(
+				'IK solution is missing planning joints: ' + ', '.join(missing_joint_names)
+			)
+			return None
+
+		return self._joint_state_from_positions(planning_joint_names, positions_by_name)
+
+	def _unwrap_joint_state_near_current(
+		self,
+		target_joint_state: JointState,
+		current_joint_state: JointState,
+	) -> JointState:
+		"""
+		@brief Shift target joint angles by whole turns to keep them near the current branch.
+
+		@param target_joint_state IK result for the planning joints.
+		@param current_joint_state Latest planning-joint state.
+		@return Unwrapped joint target near the current configuration.
+		"""
+		current_positions_by_name = self._joint_positions_by_name(current_joint_state)
+		unwrapped_positions: List[float] = []
+		for joint_name, target_position in zip(target_joint_state.name, target_joint_state.position):
+			reference_position = current_positions_by_name.get(str(joint_name), float(target_position))
+			unwrapped_positions.append(
+				nearest_equivalent_angle(float(target_position), reference_position)
+			)
+
+		unwrapped_joint_state = JointState()
+		unwrapped_joint_state.header = target_joint_state.header
+		unwrapped_joint_state.name = list(target_joint_state.name)
+		unwrapped_joint_state.position = unwrapped_positions
+		return unwrapped_joint_state
+
+	def _log_joint_goal_deltas(self, current_joint_state: JointState, target_joint_state: JointState) -> None:
+		"""
+		@brief Optionally log per-joint deltas for nearby IK debugging.
+
+		@param current_joint_state Latest planning-joint state.
+		@param target_joint_state Unwrapped joint-space goal.
+		"""
+		if not self._get_bool_parameter('log_joint_goal_deltas'):
+			return
+
+		current_positions_by_name = self._joint_positions_by_name(current_joint_state)
+		deltas = []
+		for joint_name, target_position in zip(target_joint_state.name, target_joint_state.position):
+			delta = float(target_position) - current_positions_by_name.get(str(joint_name), 0.0)
+			deltas.append(f'{joint_name}={delta:.4f} rad')
+		self.get_logger().info('Nearby IK joint deltas: ' + ', '.join(deltas))
+
+	def _planning_joint_names(self) -> List[str]:
+		"""
+		@brief Return the ordered planning-joint list used for nearby IK and joint goals.
+
+		@return Planning joint names.
+		"""
+		return coerce_string_sequence(self.get_parameter('planning_joint_names').value)
+
+	def _joint_positions_by_name(self, joint_state: JointState) -> Dict[str, float]:
+		"""
+		@brief Convert a JointState message into a name-to-position mapping.
+
+		@param joint_state Joint state message.
+		@return Joint positions keyed by joint name.
+		"""
+		return {
+			str(name): float(position)
+			for name, position in zip(joint_state.name, joint_state.position)
+		}
+
+	def _joint_state_from_positions(
+		self,
+		joint_names: List[str],
+		positions_by_name: Dict[str, float],
+	) -> JointState:
+		"""
+		@brief Build a stamped JointState from ordered joint names and a position mapping.
+
+		@param joint_names Ordered joint names.
+		@param positions_by_name Joint positions keyed by joint name.
+		@return Stamped JointState in the requested order.
+		"""
+		joint_state = JointState()
+		joint_state.header.stamp = self.get_clock().now().to_msg()
+		joint_state.name = list(joint_names)
+		joint_state.position = [positions_by_name[name] for name in joint_names]
+		return joint_state
+
+	@staticmethod
+	def _describe_moveit_error_code(error_code: int) -> str:
+		"""
+		@brief Format a MoveIt error code as name plus numeric value.
+
+		@param error_code Numeric MoveIt error code.
+		@return Human-readable error code description.
+		"""
+		for attribute_name, attribute_value in MoveItErrorCodes.__dict__.items():
+			if attribute_name.isupper() and attribute_value == error_code:
+				return f'{attribute_name} ({error_code})'
+		return f'error code {error_code}'
+
+	def _motion_planning_config(self) -> MotionPlanningConfig:
+		"""
+		@brief Snapshot the ROS planning parameters used to build MoveIt requests.
+
+		@return Immutable motion planning configuration.
+		"""
+		return MotionPlanningConfig(
+			planning_frame=self._planning_frame,
+			planning_group=str(self.get_parameter('planning_group').value),
+			allowed_planning_time=float(self.get_parameter('allowed_planning_time').value),
+			num_planning_attempts=int(self.get_parameter('num_planning_attempts').value),
+			max_velocity_scaling=float(self.get_parameter('max_velocity_scaling').value),
+			max_acceleration_scaling=float(self.get_parameter('max_acceleration_scaling').value),
+			position_tolerance_m=float(self.get_parameter('position_tolerance_m').value),
+			orientation_tolerance_rad=float(self.get_parameter('orientation_tolerance_rad').value),
+			end_effector_link=str(self.get_parameter('end_effector_link').value),
+			joint_goal_tolerance_rad=float(self.get_parameter('joint_goal_tolerance_rad').value),
+			planning_pipeline_id=str(self.get_parameter('planning_pipeline_id').value),
+			planner_id=str(self.get_parameter('planner_id').value),
+		)
 
 
 def main(args: Optional[List[str]] = None) -> None:

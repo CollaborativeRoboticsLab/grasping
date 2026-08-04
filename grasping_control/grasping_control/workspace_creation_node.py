@@ -11,6 +11,7 @@ from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from grasping_control.common import (
+	coerce_string_sequence,
 	find_colcon_workspace_root,
 	load_yaml_dict,
 	resolve_config_path,
@@ -71,7 +72,7 @@ class WorkspaceCreationNode(Node):
 			str(self.get_parameter('shape_definitions_path').value),
 			'shape_definitions.yaml',
 		)
-		self._allowed_collision_link_options = self._coerce_string_sequence(
+		self._allowed_collision_link_options = coerce_string_sequence(
 			self.get_parameter('allowed_collision_link_options').value
 		)
 		self._collision_check_group = str(self.get_parameter('collision_check_group').value).strip()
@@ -425,7 +426,7 @@ class WorkspaceCreationNode(Node):
 		@param detected_collision_links Robot links currently colliding with the captured object.
 		@return Selected link names, or None when cancelled.
 		"""
-		current_links = self._coerce_string_sequence(object_entry.get('allowed_collision_links', []))
+		current_links = coerce_string_sequence(object_entry.get('allowed_collision_links', []))
 		link_options: List[str] = []
 		for link_name in detected_collision_links + self._allowed_collision_link_options + current_links:
 			if link_name not in link_options:
@@ -722,19 +723,6 @@ class WorkspaceCreationNode(Node):
 			print('Enter y, n, or type cancel.')
 
 		return None
-
-	def _coerce_string_sequence(self, value: Any) -> List[str]:
-		"""
-		@brief Convert a string or sequence-like value into clean string values.
-
-		@param value String or sequence-like value.
-		@return Non-empty strings.
-		"""
-		if isinstance(value, str):
-			items = [item.strip() for item in value.strip('[]()').split(',')]
-		else:
-			items = list(value)
-		return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
 
 	def _capture_workspace_area(self) -> Optional[Dict[str, Any]]:
 		"""

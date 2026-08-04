@@ -73,6 +73,17 @@ Motion behavior is configured through `motion_config.yaml`:
 | `orientation_tolerance_rad` | `0.1` | Angular tolerance in radians used for the end-effector orientation constraint. |
 | `planning_pipeline_id` | `''` | Optional MoveIt planning pipeline override. Leave empty to use the MoveIt default. |
 | `planner_id` | `''` | Optional planner override within the selected planning pipeline. Leave empty to use the default planner. |
+| `compute_ik_service` | `/compute_ik` | MoveIt IK service used to compute a nearby seeded joint solution before planning. |
+| `joint_state_topic` | `/joint_states` | Joint-state source cached by `motion_execution_node` for nearby-IK seeding. |
+| `planning_joint_names` | UR10 arm joints | Ordered joints extracted from `joint_state_topic` and constrained in the joint-goal request. |
+| `prefer_nearby_ik` | `true` | When enabled, the node tries nearby seeded IK before sending the MoveIt request. |
+| `fallback_to_pose_planning_on_ik_failure` | `true` | When enabled, IK failures fall back to the old pose-constrained planning path. |
+| `joint_state_timeout_sec` | `0.5` | Maximum age of the cached planning-joint state before nearby IK is skipped. |
+| `ik_timeout_sec` | `0.2` | IK timeout forwarded to `compute_ik_service`. |
+| `joint_goal_tolerance_rad` | `0.001` | Symmetric tolerance used when MoveIt is given a joint-space goal. |
+| `log_joint_goal_deltas` | `false` | Log the selected nearby IK joint deltas for runtime debugging. |
 
 Named poses are triggered through `MoveToNamedPose`, for example with `pose_name=workspace_center`, `pose_name=pre_grasp`, or `pose_name=post_grasp`.
+
+With nearby IK enabled, the stack no longer asks MoveIt to solve only "reach this pose somehow". Instead it seeds IK from the current arm joints, unwraps the result toward the current branch, and then plans in joint space. This reduces wrist and elbow branch flips on UR-style arms while preserving a pose-based external API.
 

@@ -12,11 +12,12 @@ Its major features are:
 
 - Transforming the incoming pose into the configured planning frame
 - Validating that the target lies inside the calibrated workspace area, when configured
+- Seeding MoveIt's IK with the current arm joint state and preferring a nearby joint-space solution
 - Loading collision objects from workspace ROS parameters at startup
 - Applying those objects to MoveIt through `ApplyPlanningScene`
 - Loading named motion poses from ROS parameters provided by `motion_config.yaml`
 - Publishing the calibrated workspace area as an RViz marker
-- Building MoveIt position and orientation constraints
+- Building MoveIt joint-goal or pose-goal constraints depending on the nearby-IK result
 - Submitting the final motion request to `moveit_msgs/action/MoveGroup`
 
 This keeps MoveIt, TF, and workspace handling centralized in one server.
@@ -31,7 +32,10 @@ For each `MoveToPose` goal, the node performs the following sequence:
 4. Publish feedback state `validating_workspace_area`.
 5. Reject the goal if the target is outside the calibrated workspace area.
 6. Publish feedback state `planning_and_executing`.
-7. Build a `MotionPlanRequest` and send it to MoveIt.
+7. Read the latest configured planning-joint state from `joint_state_topic`.
+8. Call `compute_ik_service` with the current arm state as the IK seed.
+9. If IK succeeds, unwrap the returned joint angles toward the current branch and send a joint-space `MotionPlanRequest`.
+10. If IK fails and fallback is enabled, log the IK reason and fall back to the original pose-constrained `MotionPlanRequest`.
 
 If the goal succeeds, the action returns `success=true`. If it fails, the action aborts with a status message describing the cause.
 
@@ -154,10 +158,16 @@ If no workspace area exists, the node publishes a delete marker so stale visuals
 
 ## MoveIt Planning Behavior
 
-The node converts a target TCP pose into MoveIt constraints.
+The node first tries to convert a target TCP pose into a nearby joint-space goal.
 
-- Position is represented as a spherical tolerance region around the requested pose.
-- Orientation is normalized before building the orientation constraint.
+- The latest `planning_joint_names` state is read from `joint_state_topic` and used as the IK seed.
+- `compute_ik_service` is called for the configured `planning_group` and `end_effector_link` or named-pose target frame.
+- Returned joint angles are shifted by whole turns so each revolute joint stays as close as possible to the current arm configuration.
+- When nearby IK succeeds, the final `MotionPlanRequest` uses `JointConstraint`s instead of TCP pose constraints.
+- When nearby IK fails and fallback is enabled, the node logs the IK reason and falls back to a pose-constrained request.
+
+- During pose-constrained fallback, position is represented as a spherical tolerance region around the requested pose.
+- During pose-constrained fallback, orientation is normalized before building the orientation constraint.
 - The request uses the configured planning group, planner, pipeline, planning time, and scaling factors.
 
 The node sends the request to the configured `MoveGroup` action and reports any non-success MoveIt error code back to the caller.
@@ -183,6 +193,15 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 - `orientation_tolerance_rad`: default `0.1`
 - `planning_pipeline_id`: optional planner pipeline override
 - `planner_id`: optional planner override
+- `compute_ik_service`: default `/compute_ik`
+- `joint_state_topic`: default `/joint_states`
+- `planning_joint_names`: ordered arm joints used to seed IK and build the final joint goal
+- `prefer_nearby_ik`: when true, compute a nearby IK solution before sending a MoveIt request
+- `fallback_to_pose_planning_on_ik_failure`: when true, use the old pose-constrained planning path if nearby IK fails
+- `joint_state_timeout_sec`: maximum age for cached planning joints before nearby IK is skipped
+- `ik_timeout_sec`: timeout passed to MoveIt's IK request
+- `joint_goal_tolerance_rad`: tolerance applied to each joint when a joint-goal request is built
+- `log_joint_goal_deltas`: when true, log per-joint deltas between current state and the selected nearby IK goal
 
 ### Workspace Integration
 
@@ -210,5 +229,21 @@ Common failure sources are:
 - named pose is not listed in `motion_config.yaml`
 - workspace area is configured but invalid
 - target pose lies outside the calibrated workspace area
+- no fresh `joint_state_topic` sample is available for `planning_joint_names`
+- `compute_ik_service` is unavailable, times out, or returns a non-success MoveIt error code
 - `MoveGroup` action server is unavailable
 - MoveIt rejects or fails the motion request
+
+## Runtime Notes Without Hardware
+
+The nearby-IK path depends on live `/joint_states` and a running `/compute_ik` service from MoveIt. Without a robot or demo stack running, the new code can still be validated statically, but the runtime path will naturally fall back or abort depending on `fallback_to_pose_planning_on_ik_failure`.
+
+For offline verification, temporarily set:
+
+```yaml
+prefer_nearby_ik: true
+fallback_to_pose_planning_on_ik_failure: true
+log_joint_goal_deltas: true
+```
+
+Then inspect the node logs while running against either the MoveIt demo launch or hardware bringup.

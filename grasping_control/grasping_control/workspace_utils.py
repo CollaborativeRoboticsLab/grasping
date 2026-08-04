@@ -7,9 +7,17 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from moveit_msgs.msg import CollisionObject
+from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
 
-from grasping_control.common import Quaternion, dict_to_pose, normalize_quaternion, write_yaml_dict
+from grasping_control.common import (
+	Quaternion,
+	coerce_float_sequence,
+	coerce_string_sequence,
+	dict_to_pose,
+	normalize_quaternion,
+	write_yaml_dict,
+)
 
 
 WORKSPACE_PARAMETER_NODE = 'motion_execution_node'
@@ -201,6 +209,105 @@ def workspace_config_from_ros_parameters(
 	return workspace_config
 
 
+def workspace_config_from_node_parameters(
+	node: Node,
+	default_config: Dict[str, Any],
+) -> Dict[str, Any]:
+	"""!
+	@brief Reconstruct runtime workspace config from motion_execution_node ROS parameters.
+
+	@param node ROS node exposing the workspace parameters.
+	@param default_config Default workspace configuration used for missing values.
+	@return Runtime workspace configuration dictionary.
+	"""
+	workspace_object_names = coerce_string_sequence(node.get_parameter('workspace_objects').value)
+	parameters: Dict[str, Any] = {
+		'workspace': {
+			'version': int(node.get_parameter('workspace.version').value),
+			'updated_at': str(node.get_parameter('workspace.updated_at').value),
+			'base_frame': str(node.get_parameter('workspace.base_frame').value),
+			'tool_frame': str(node.get_parameter('workspace.tool_frame').value),
+			'ground_plane_z': float(node.get_parameter('workspace.ground_plane_z').value),
+		},
+		'workspace_area': {
+			'enabled': _parameter_bool(node.get_parameter('workspace_area.enabled').value),
+			'geometry': {
+				'type': str(node.get_parameter('workspace_area.geometry.type').value),
+				'dimensions': coerce_float_sequence(
+					node.get_parameter('workspace_area.geometry.dimensions').value,
+					2,
+					'workspace_area.geometry.dimensions',
+				),
+				'pose': {
+					'position': coerce_float_sequence(
+						node.get_parameter('workspace_area.geometry.pose.position').value,
+						3,
+						'workspace_area.geometry.pose.position',
+					),
+					'orientation': coerce_float_sequence(
+						node.get_parameter('workspace_area.geometry.pose.orientation').value,
+						4,
+						'workspace_area.geometry.pose.orientation',
+					),
+				},
+				'corner_points': {
+					'x': coerce_float_sequence(
+						node.get_parameter('workspace_area.geometry.corner_points.x').value,
+						4,
+						'workspace_area.geometry.corner_points.x',
+					),
+					'y': coerce_float_sequence(
+						node.get_parameter('workspace_area.geometry.corner_points.y').value,
+						4,
+						'workspace_area.geometry.corner_points.y',
+					),
+					'z': coerce_float_sequence(
+						node.get_parameter('workspace_area.geometry.corner_points.z').value,
+						4,
+						'workspace_area.geometry.corner_points.z',
+					),
+				},
+			},
+		},
+		'workspace_objects': workspace_object_names,
+		'workspace_object': {},
+	}
+
+	workspace_object_parameters = parameters['workspace_object']
+	for object_name in workspace_object_names:
+		prefix = f'workspace_object.{object_name}'
+		geometry_type = str(node.get_parameter(f'{prefix}.geometry.type').value)
+		geometry_dimensions = coerce_float_sequence(
+			node.get_parameter(f'{prefix}.geometry.dimensions').value,
+			3 if geometry_type == 'box' else 2,
+			f'{prefix}.geometry.dimensions',
+		)
+		workspace_object_parameters[object_name] = {
+			'geometry': {
+				'type': geometry_type,
+				'dimensions': geometry_dimensions,
+				'pose': {
+					'position': coerce_float_sequence(
+						node.get_parameter(f'{prefix}.geometry.pose.position').value,
+						3,
+						f'{prefix}.geometry.pose.position',
+					),
+					'orientation': coerce_float_sequence(
+						node.get_parameter(f'{prefix}.geometry.pose.orientation').value,
+						4,
+						f'{prefix}.geometry.pose.orientation',
+					),
+				},
+			},
+			'shape': str(node.get_parameter(f'{prefix}.shape').value),
+			'allowed_collision_links': coerce_string_sequence(
+				node.get_parameter(f'{prefix}.allowed_collision_links').value
+			),
+		}
+
+	return workspace_config_from_ros_parameters(parameters, default_config)
+
+
 def workspace_config_to_ros_parameters_document(
 	workspace_config: Dict[str, Any],
 	node_name: str = WORKSPACE_PARAMETER_NODE,
@@ -343,6 +450,13 @@ def _workspace_parameter_mapping(document: Dict[str, Any]) -> Optional[Dict[str,
 	if isinstance(parameters, dict):
 		return parameters
 	return None
+
+
+def _parameter_bool(value: Any) -> bool:
+	"""Return a boolean ROS parameter value that may arrive as a string."""
+	if isinstance(value, str):
+		return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+	return bool(value)
 
 
 def _workspace_area_from_parameters(parameters: Dict[str, Any]) -> Optional[Dict[str, Any]]:

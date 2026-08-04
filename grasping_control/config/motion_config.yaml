@@ -14,6 +14,15 @@ motion_execution_node:
     orientation_tolerance_rad: 0.1
     planning_pipeline_id: ''
     planner_id: ''
+    compute_ik_service: /compute_ik
+    joint_state_topic: /joint_states
+    planning_joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+    prefer_nearby_ik: true
+    fallback_to_pose_planning_on_ik_failure: true
+    joint_state_timeout_sec: 0.5
+    ik_timeout_sec: 0.2
+    joint_goal_tolerance_rad: 0.001
+    log_joint_goal_deltas: false
     poses_names: ["workspace_center", "pre_grasp", "post_grasp"]
     poses_values:
       workspace_center:

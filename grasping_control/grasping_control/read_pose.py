@@ -9,6 +9,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from grasping_control.common import coerce_string_sequence, quaternion_to_rpy
+
 
 class ReadPoseNode(Node):
 	"""
@@ -131,7 +133,7 @@ class ReadPoseNode(Node):
 		@return True when the joint positions were printed successfully.
 		"""
 		timeout_sec = float(self.get_parameter('timeout_sec').value)
-		joint_names = self._coerce_string_sequence(self.get_parameter('joint_names').value)
+		joint_names = coerce_string_sequence(self.get_parameter('joint_names').value)
 
 		deadline = time.monotonic() + timeout_sec
 		while rclpy.ok() and time.monotonic() < deadline:
@@ -164,41 +166,6 @@ class ReadPoseNode(Node):
 			position_deg = math.degrees(position_rad)
 			print(f'  {joint_name}: {position_rad:.6f} rad ({position_deg:.3f} deg)')
 		return True
-
-	@staticmethod
-	def _coerce_string_sequence(value: object) -> list[str]:
-		"""
-		@brief Convert a parameter value into a list of non-empty strings.
-
-		@param value String or sequence-like parameter value.
-		@return Clean string values.
-		"""
-		if isinstance(value, str):
-			items = [item.strip() for item in value.strip('[]()').split(',')]
-		else:
-			items = list(value)
-		return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
-
-
-def quaternion_to_rpy(x: float, y: float, z: float, w: float) -> tuple[float, float, float]:
-	"""
-	@brief Convert a quaternion to roll, pitch, yaw angles.
-	"""
-	sinr_cosp = 2.0 * (w * x + y * z)
-	cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
-	roll = math.atan2(sinr_cosp, cosr_cosp)
-
-	sinp = 2.0 * (w * y - z * x)
-	if abs(sinp) >= 1.0:
-		pitch = math.copysign(math.pi / 2.0, sinp)
-	else:
-		pitch = math.asin(sinp)
-
-	siny_cosp = 2.0 * (w * z + x * y)
-	cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-	yaw = math.atan2(siny_cosp, cosy_cosp)
-	return roll, pitch, yaw
-
 
 def main(args: Optional[list[str]] = None) -> None:
 	"""

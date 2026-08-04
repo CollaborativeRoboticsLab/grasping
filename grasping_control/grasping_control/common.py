@@ -50,6 +50,103 @@ def normalize_quaternion(q: Quaternion) -> Quaternion:
     return Quaternion(q.x / norm, q.y / norm, q.z / norm, q.w / norm)
 
 
+def coerce_float_sequence(value: Any, expected_length: int, name: str) -> list[float]:
+    """
+    @brief Convert a fixed-length sequence-like value into floats.
+
+    @param value Sequence value from YAML or parameters.
+    @param expected_length Required number of values.
+    @param name Human-readable value name for error messages.
+    @return Parameter values as floats.
+    """
+    if isinstance(value, str):
+        items = [item.strip() for item in value.strip('[]()').split(',') if item.strip()]
+    else:
+        items = list(value)
+
+    if len(items) != expected_length:
+        raise RuntimeError(f"'{name}' must contain {expected_length} values.")
+    return [float(item) for item in items]
+
+
+def coerce_string_sequence(value: Any) -> list[str]:
+    """
+    @brief Convert a string or sequence-like value into clean string values.
+
+    @param value String or sequence-like value.
+    @return Non-empty strings.
+    """
+    if isinstance(value, str):
+        items = [item.strip() for item in value.strip('[]()').split(',')]
+    else:
+        items = list(value)
+    return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
+
+
+def quaternion_from_rpy(roll: float, pitch: float, yaw: float) -> Quaternion:
+    """
+    @brief Convert roll-pitch-yaw Euler angles to a quaternion.
+
+    @param roll Roll angle in radians.
+    @param pitch Pitch angle in radians.
+    @param yaw Yaw angle in radians.
+    @return Equivalent normalized quaternion.
+    """
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+
+    return normalize_quaternion(
+        Quaternion(
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        )
+    )
+
+
+def quaternion_to_rpy(x: float, y: float, z: float, w: float) -> tuple[float, float, float]:
+    """
+    @brief Convert a quaternion to roll, pitch, yaw angles.
+
+    @param x Quaternion x component.
+    @param y Quaternion y component.
+    @param z Quaternion z component.
+    @param w Quaternion w component.
+    @return Equivalent roll, pitch, yaw tuple in radians.
+    """
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2.0 * (w * y - z * x)
+    if abs(sinp) >= 1.0:
+        pitch = math.copysign(math.pi / 2.0, sinp)
+    else:
+        pitch = math.asin(sinp)
+
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+    return roll, pitch, yaw
+
+
+def nearest_equivalent_angle(target_angle: float, reference_angle: float) -> float:
+    """
+    @brief Shift an angular target by whole turns so it stays closest to a reference angle.
+
+    @param target_angle Target angle in radians.
+    @param reference_angle Reference angle in radians.
+    @return Equivalent target angle nearest to the reference.
+    """
+    two_pi = 2.0 * math.pi
+    return target_angle + two_pi * round((reference_angle - target_angle) / two_pi)
+
+
 def resolve_config_path(package_name: str, configured_path: str, default_name: str) -> Path:
     """
     @brief Resolve a config file from an explicit path, source tree, or install share.
