@@ -66,7 +66,7 @@ Top-level fields written by the calibration flow:
 - `workspace_area`
 - `objects`
 
-### `workspace_area`
+### workspace_area
 
 The `workspace_area` field is either `null` or a dictionary containing:
 
@@ -87,7 +87,7 @@ Its derived `geometry` block contains:
 - `pose.position`: average center of the four corners
 - `corner_points`: the four saved corner points in capture order
 
-### `objects`
+### objects
 
 Each object entry contains:
 
@@ -192,8 +192,6 @@ If you override `workspace_config_path`, point `motion_execution_node` at the sa
 
 If you do not override `workspace_config_path`, `workspace_creation` starts from `workspace_empty.yaml`. When you choose `save`, it asks for a file name and writes that YAML into the colcon workspace root.
 
-
-
 ## Usage Commands
 
 - Start the ur10 arm or tm12s arm with gripper in servo mode. As an example,
@@ -228,7 +226,7 @@ source install/setup.bash
 ros2 run grasping_control servo_teleop
 ```
 
-Follow the onscreen guidelines to add/edit workspace and objects.
+Follow the onscreen guidelines to add/edit workspace and objects. After capturing an object, the tool temporarily checks that object against the current robot state in MoveIt and prompts for robot links currently colliding with it. Select detected links by number, type custom link names separated by commas, press Enter to keep the current selection, or type `none` to clear it.
 
 
 ### Typical Session
@@ -237,4 +235,5 @@ Follow the onscreen guidelines to add/edit workspace and objects.
 2. Press `w` to calibrate the workspace area if needed.
 3. Capture the four workspace corners in order.
 4. Add or update collision objects as needed.
-5. Press `s` and enter a file name to save the updated `workspace_area` and `objects` into the workspace root.
+5. Select any allowed object-link collisions when prompted, such as `ur10_base_link` for a table touching the robot mount.
+6. Press `s` and enter a file name to save the updated `workspace_area` and `objects` into the workspace root.

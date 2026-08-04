@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 
 import rclpy
 from rclpy.node import Node
+from moveit_msgs.msg import CollisionObject, PlanningScene, RobotState
+from moveit_msgs.srv import ApplyPlanningScene, GetStateValidity
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -16,6 +18,7 @@ from grasping_control.common import (
 from grasping_control.workspace_utils import (
 	build_geometry,
 	build_workspace_area,
+	collision_objects_from_workspace,
 	default_shape_definitions,
 	default_workspace_config,
 	iso_timestamp,
@@ -43,6 +46,10 @@ class WorkspaceCreationNode(Node):
 		self.declare_parameter('workspace_write_path', '')
 		self.declare_parameter('get_package_share_directory', '')
 		self.declare_parameter('shape_definitions_path', '')
+		self.declare_parameter('allowed_collision_link_options', [''])
+		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
+		self.declare_parameter('check_state_validity_service', '/check_state_validity')
+		self.declare_parameter('collision_check_group', '')
 
 		self._joint_state_lock = threading.Lock()
 		self._latest_joint_state: Optional[JointState] = None
@@ -63,6 +70,18 @@ class WorkspaceCreationNode(Node):
 			'grasping_control',
 			str(self.get_parameter('shape_definitions_path').value),
 			'shape_definitions.yaml',
+		)
+		self._allowed_collision_link_options = self._coerce_string_sequence(
+			self.get_parameter('allowed_collision_link_options').value
+		)
+		self._collision_check_group = str(self.get_parameter('collision_check_group').value).strip()
+		self._planning_scene_client = self.create_client(
+			ApplyPlanningScene,
+			str(self.get_parameter('apply_planning_scene_service').value),
+		)
+		self._state_validity_client = self.create_client(
+			GetStateValidity,
+			str(self.get_parameter('check_state_validity_service').value),
 		)
 
 		self._tf_buffer = Buffer()
@@ -379,7 +398,244 @@ class WorkspaceCreationNode(Node):
 		elif 'shape_parameters' in object_entry:
 			del object_entry['shape_parameters']
 		object_entry['geometry'] = geometry
+
+		detected_collision_links = self._detect_object_collision_links(object_entry)
+		allowed_collision_links = self._prompt_for_allowed_collision_links(
+			object_entry,
+			detected_collision_links,
+		)
+		if allowed_collision_links is None:
+			return None
+		if allowed_collision_links:
+			object_entry['allowed_collision_links'] = allowed_collision_links
+		elif 'allowed_collision_links' in object_entry:
+			del object_entry['allowed_collision_links']
+
 		return object_entry
+
+	def _prompt_for_allowed_collision_links(
+		self,
+		object_entry: Dict[str, Any],
+		detected_collision_links: List[str],
+	) -> Optional[List[str]]:
+		"""
+		@brief Prompt for robot links allowed to collide with the captured object.
+
+		@param object_entry Object metadata being populated.
+		@param detected_collision_links Robot links currently colliding with the captured object.
+		@return Selected link names, or None when cancelled.
+		"""
+		current_links = self._coerce_string_sequence(object_entry.get('allowed_collision_links', []))
+		link_options: List[str] = []
+		for link_name in detected_collision_links + self._allowed_collision_link_options + current_links:
+			if link_name not in link_options:
+				link_options.append(link_name)
+
+		print('')
+		print(f'Allowed robot-link collisions for {object_entry.get("name", "object")}:')
+		if detected_collision_links:
+			print('Detected robot links currently colliding with this object:')
+		elif link_options:
+			print('No current object-robot contacts were detected. Showing configured/current links:')
+		else:
+			print('No current object-robot contacts were detected.')
+
+		if link_options:
+			for index, link_name in enumerate(link_options, start=1):
+				print(f'  {index}. {link_name}')
+		print('Press Enter to keep current selection, type none to clear, or enter numbers/link names separated by commas.')
+		if current_links:
+			print('Current selection: ' + ', '.join(current_links))
+
+		while rclpy.ok():
+			response = input('Allow collisions with links: ').strip()
+			if response.lower() in {'cancel', 'c', 'q'}:
+				print('Object capture cancelled.')
+				return None
+			if not response:
+				return current_links
+			if response.lower() in {'none', 'clear', 'no'}:
+				return []
+
+			selected_links: List[str] = []
+			for raw_token in response.replace(',', ' ').split():
+				link_name = self._allowed_collision_link_from_selection(raw_token, link_options)
+				if link_name is None:
+					print(f'Unknown option {raw_token}. Enter a listed number, a link name, none, or cancel.')
+					selected_links = []
+					break
+				if link_name not in selected_links:
+					selected_links.append(link_name)
+			if selected_links:
+				return selected_links
+
+		return current_links
+
+	def _allowed_collision_link_from_selection(self, selection: str, link_options: List[str]) -> Optional[str]:
+		"""
+		@brief Resolve a menu selection token to a robot link name.
+
+		@param selection Numbered menu selection or raw link name.
+		@param link_options Numbered link options shown to the operator.
+		@return Link name, or None when the numbered selection is invalid.
+		"""
+		if selection.isdigit():
+			selected_index = int(selection)
+			if 1 <= selected_index <= len(link_options):
+				return link_options[selected_index - 1]
+			return None
+		return selection.strip()
+
+	def _detect_object_collision_links(self, object_entry: Dict[str, Any]) -> List[str]:
+		"""
+		@brief Detect robot links currently colliding with a captured workspace object.
+
+		@param object_entry Captured object containing geometry.
+		@return Robot link names reported in contact with the object.
+		"""
+		joint_state = self._get_latest_joint_state()
+		if joint_state is None:
+			print('Skipping collision detection because no joint state has been received yet.')
+			return []
+
+		collision_objects = collision_objects_from_workspace(
+			{
+				'base_frame': self._base_frame,
+				'objects': [object_entry],
+			},
+			self._base_frame,
+			warn=lambda message: print(message),
+		)
+		if not collision_objects:
+			print('Skipping collision detection because the captured object has no supported collision geometry.')
+			return []
+
+		probe_object = collision_objects[0]
+		original_object_id = probe_object.id
+		probe_object.id = f'workspace_creation_probe_{original_object_id}'
+
+		print(f'Checking current robot collisions against {object_entry.get("name", "object")}...')
+		if not self._apply_collision_object(probe_object):
+			return []
+
+		try:
+			return self._check_state_validity_contacts(probe_object.id, joint_state)
+		finally:
+			self._remove_collision_object(probe_object)
+
+	def _apply_collision_object(self, collision_object: CollisionObject) -> bool:
+		"""
+		@brief Temporarily add a collision object to MoveIt's planning scene.
+
+		@param collision_object Collision object to add.
+		@return True when the scene update succeeds.
+		"""
+		if not self._planning_scene_client.wait_for_service(timeout_sec=2.0):
+			print('MoveIt ApplyPlanningScene service is not available; collision links cannot be detected.')
+			return False
+
+		request = ApplyPlanningScene.Request()
+		request.scene = PlanningScene()
+		request.scene.is_diff = True
+		request.scene.world.collision_objects = [collision_object]
+		result = self._call_service(request, self._planning_scene_client, timeout_sec=5.0)
+		if result is None or not bool(result.success):
+			print('MoveIt rejected the temporary collision object; collision links cannot be detected.')
+			return False
+		return True
+
+	def _remove_collision_object(self, collision_object: CollisionObject) -> None:
+		"""
+		@brief Remove a temporary collision object from MoveIt's planning scene.
+
+		@param collision_object Collision object whose id/frame should be removed.
+		"""
+		remove_object = CollisionObject()
+		remove_object.id = collision_object.id
+		remove_object.header.frame_id = collision_object.header.frame_id
+		remove_object.operation = CollisionObject.REMOVE
+
+		request = ApplyPlanningScene.Request()
+		request.scene = PlanningScene()
+		request.scene.is_diff = True
+		request.scene.world.collision_objects = [remove_object]
+		self._call_service(request, self._planning_scene_client, timeout_sec=5.0)
+
+	def _check_state_validity_contacts(self, object_id: str, joint_state: Dict[str, Any]) -> List[str]:
+		"""
+		@brief Query MoveIt for contacts between a temporary object and current robot state.
+
+		@param object_id Temporary collision object id in the planning scene.
+		@param joint_state Current joint state mapping.
+		@return Robot link names in contact with the object.
+		"""
+		if not self._state_validity_client.wait_for_service(timeout_sec=2.0):
+			print('MoveIt state-validity service is not available; collision links cannot be detected.')
+			return []
+
+		request = GetStateValidity.Request()
+		request.robot_state = RobotState()
+		request.robot_state.joint_state = self._joint_state_msg_from_mapping(joint_state)
+		request.group_name = self._collision_check_group
+
+		result = self._call_service(request, self._state_validity_client, timeout_sec=5.0)
+		if result is None:
+			print('MoveIt state-validity request did not complete; collision links cannot be detected.')
+			return []
+
+		robot_links: List[str] = []
+		for contact in result.contacts:
+			body_1 = str(contact.contact_body_1)
+			body_2 = str(contact.contact_body_2)
+			if body_1 == object_id and int(contact.body_type_2) == int(contact.ROBOT_LINK):
+				robot_link = body_2
+			elif body_2 == object_id and int(contact.body_type_1) == int(contact.ROBOT_LINK):
+				robot_link = body_1
+			else:
+				continue
+			if robot_link not in robot_links:
+				robot_links.append(robot_link)
+
+		if robot_links:
+			print('Detected object collisions with: ' + ', '.join(robot_links))
+		else:
+			print('No robot links are currently colliding with this object.')
+		return robot_links
+
+	def _joint_state_msg_from_mapping(self, joint_state: Dict[str, Any]) -> JointState:
+		"""
+		@brief Convert cached joint-state data into a ROS JointState message.
+
+		@param joint_state Joint state mapping from _get_latest_joint_state.
+		@return JointState message for MoveIt state validity checks.
+		"""
+		msg = JointState()
+		msg.header.stamp = self.get_clock().now().to_msg()
+		msg.name = [str(name) for name in joint_state.get('name', [])]
+		msg.position = [float(value) for value in joint_state.get('position', [])]
+		msg.velocity = [float(value) for value in joint_state.get('velocity', [])]
+		msg.effort = [float(value) for value in joint_state.get('effort', [])]
+		return msg
+
+	def _call_service(self, request: Any, client: Any, timeout_sec: float) -> Any:
+		"""
+		@brief Call a ROS service from the CLI thread while the node spins elsewhere.
+
+		@param request Service request object.
+		@param client Service client.
+		@param timeout_sec Maximum time to wait for a response.
+		@return Service response or None on timeout/failure.
+		"""
+		done = threading.Event()
+		future = client.call_async(request)
+		future.add_done_callback(lambda _future: done.set())
+		if not done.wait(timeout=timeout_sec):
+			return None
+		try:
+			return future.result()
+		except Exception as exc:  # noqa: BLE001
+			print(f'Service call failed: {exc}')
+			return None
 
 	def _prompt_for_shape_parameters(
 		self,
@@ -466,6 +722,19 @@ class WorkspaceCreationNode(Node):
 			print('Enter y, n, or type cancel.')
 
 		return None
+
+	def _coerce_string_sequence(self, value: Any) -> List[str]:
+		"""
+		@brief Convert a string or sequence-like value into clean string values.
+
+		@param value String or sequence-like value.
+		@return Non-empty strings.
+		"""
+		if isinstance(value, str):
+			items = [item.strip() for item in value.strip('[]()').split(',')]
+		else:
+			items = list(value)
+		return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
 
 	def _capture_workspace_area(self) -> Optional[Dict[str, Any]]:
 		"""

@@ -46,6 +46,7 @@ class ServoTeleop(Node):
 		self.declare_parameter("angular_speed", 0.75)
 		self.declare_parameter("publish_rate_hz", 30.0)
 		self.declare_parameter("command_timeout", 0.18)
+		self.declare_parameter("help_repeat_lines", 10)
 
 		topic = self.get_parameter("topic").get_parameter_value().string_value
 		start_service = self.get_parameter("start_service").get_parameter_value().string_value
@@ -66,6 +67,10 @@ class ServoTeleop(Node):
 		self._command_timeout = (
 			self.get_parameter("command_timeout").get_parameter_value().double_value
 		)
+		self._help_repeat_lines = max(
+			0,
+			self.get_parameter("help_repeat_lines").get_parameter_value().integer_value,
+		)
 		publish_rate_hz = (
 			self.get_parameter("publish_rate_hz").get_parameter_value().double_value
 		)
@@ -81,6 +86,7 @@ class ServoTeleop(Node):
 		self._command_deadline = 0.0
 		self._sent_stop = True
 		self._quit_requested = False
+		self._printed_command_lines = 0
 
 		period = 1.0 / publish_rate_hz if publish_rate_hz > 0.0 else 1.0 / 30.0
 		self.create_timer(period, self._publish_command)
@@ -129,7 +135,7 @@ class ServoTeleop(Node):
 			angular[2] = -self._angular_speed
 		elif key == " ":
 			self._stop_motion()
-			print("\rcommand: stop                ")
+			self._print_command("command: stop")
 			return
 		elif key == "v":
 			self._call_trigger(self._start_client, "start_servo")
@@ -140,6 +146,7 @@ class ServoTeleop(Node):
 			return
 		elif key == "h":
 			print(f"\n{HELP_TEXT}\n")
+			self._printed_command_lines = 0
 			return
 		elif key == "x":
 			self._stop_motion()
@@ -155,7 +162,16 @@ class ServoTeleop(Node):
 			self._command_deadline = time.monotonic() + self._command_timeout
 			self._sent_stop = False
 
-		print(f"\rcommand: lin={linear} ang={angular}    ")
+		self._print_command(f"command: lin={linear} ang={angular}")
+
+	def _print_command(self, message: str) -> None:
+		print(f"\r{message}    ")
+		if self._help_repeat_lines <= 0:
+			return
+		self._printed_command_lines += 1
+		if self._printed_command_lines >= self._help_repeat_lines:
+			print(f"\n{HELP_TEXT}\n")
+			self._printed_command_lines = 0
 
 	def _stop_motion(self) -> None:
 		with self._command_lock:
@@ -240,7 +256,7 @@ def main() -> None:
 	print(HELP_TEXT)
 
 	try:
-		tty.setraw(sys.stdin.fileno())
+		tty.setcbreak(sys.stdin.fileno())
 		while rclpy.ok() and not node.quit_requested:
 			rclpy.spin_once(node, timeout_sec=0.05)
 			key = _read_key(timeout=0.05)

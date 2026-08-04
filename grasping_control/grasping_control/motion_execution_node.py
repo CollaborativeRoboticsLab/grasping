@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import math
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +22,8 @@ from grasping_control.workspace_utils import (
 from grasping_msgs.action import MoveToNamedPose, MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
+	AllowedCollisionEntry,
+	AllowedCollisionMatrix,
 	BoundingVolume,
 	Constraints,
 	MotionPlanRequest,
@@ -28,10 +31,11 @@ from moveit_msgs.msg import (
 	OrientationConstraint,
 	PlanningOptions,
 	PlanningScene,
+	PlanningSceneComponents,
 	PositionConstraint,
 	RobotState,
 )
-from moveit_msgs.srv import ApplyPlanningScene
+from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
 from shape_msgs.msg import SolidPrimitive
 import tf2_ros
 from visualization_msgs.msg import Marker
@@ -62,9 +66,10 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('orientation_tolerance_rad', 0.1)
 		self.declare_parameter('end_effector_link', 'tool0')
 		self.declare_parameter('named_pose_action_name', 'move_arm_to_named_pose')
-		self.declare_parameter('workspace_to_end_effector_height', 0.0)
-		self.declare_parameter('poses_list', ['workspace_center_pose', 'pre_grasp_pose', 'post_grasp_pose'])
+		self.declare_parameter('poses_names', ['workspace_center', 'pre_grasp', 'post_grasp'])
+		self.declare_parameter('poses_list', [])
 		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
+		self.declare_parameter('get_planning_scene_service', '/get_planning_scene')
 		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
@@ -96,6 +101,10 @@ class MotionExecutionNode(Node):
 		self._planning_scene_client = self.create_client(
 			ApplyPlanningScene,
 			str(self.get_parameter('apply_planning_scene_service').value),
+		)
+		self._get_planning_scene_client = self.create_client(
+			GetPlanningScene,
+			str(self.get_parameter('get_planning_scene_service').value),
 		)
 		self._grasp_pose_action_server = ActionServer(
 			self,
@@ -243,15 +252,6 @@ class MotionExecutionNode(Node):
 				self._planning_frame,
 			)
 
-			feedback.state = 'validating_workspace_area'
-			goal_handle.publish_feedback(feedback)
-			if not self._target_pose_in_workspace_area(target_pose):
-				result = MoveToNamedPose.Result()
-				result.success = False
-				result.message = f"Configured pose '{pose_name}' lies outside the calibrated workspace area."
-				goal_handle.abort()
-				return result
-
 			feedback.state = 'planning_and_executing'
 			goal_handle.publish_feedback(feedback)
 			ok, message = self._move_to_pose(target_pose, target_frame)
@@ -272,7 +272,7 @@ class MotionExecutionNode(Node):
 
 	def _declare_configured_pose_parameters(self) -> None:
 		"""
-		@brief Declare pose parameters listed by poses_list.
+		@brief Declare pose parameters listed by poses_names or the legacy poses_list list.
 		"""
 		pose_names = self._configured_pose_names()
 		for pose_name in pose_names:
@@ -285,7 +285,7 @@ class MotionExecutionNode(Node):
 		if pose_names:
 			self.get_logger().info('Configured motion pose parameters: ' + ', '.join(pose_names))
 		else:
-			self.get_logger().warn('No configured motion poses listed in poses_list.')
+			self.get_logger().warn('No configured motion poses listed in poses_names or legacy poses_list.')
 
 	def _declare_workspace_parameters(self) -> None:
 		"""
@@ -313,6 +313,7 @@ class MotionExecutionNode(Node):
 			self.declare_parameter(f'{prefix}.geometry.pose.position', [0.0, 0.0, 0.0])
 			self.declare_parameter(f'{prefix}.geometry.pose.orientation', [0.0, 0.0, 0.0, 1.0])
 			self.declare_parameter(f'{prefix}.shape', '')
+			self.declare_parameter(f'{prefix}.allowed_collision_links', [''])
 
 	def _load_workspace_into_planning_scene(self) -> None:
 		"""
@@ -365,6 +366,12 @@ class MotionExecutionNode(Node):
 		request.scene = PlanningScene()
 		request.scene.is_diff = True
 		request.scene.world.collision_objects = collision_objects
+		allowed_collision_matrix = self._allowed_collision_matrix_from_workspace(
+			workspace_config,
+			object_names,
+		)
+		if allowed_collision_matrix is not None:
+			request.scene.allowed_collision_matrix = allowed_collision_matrix
 
 		future = self._planning_scene_client.call_async(request)
 
@@ -482,7 +489,131 @@ class MotionExecutionNode(Node):
 		shape = str(self.get_parameter(f'{prefix}.shape').value)
 		if shape:
 			workspace_object['shape'] = shape
+		allowed_collision_links = self._coerce_string_sequence(
+			self.get_parameter(f'{prefix}.allowed_collision_links').value
+		)
+		if allowed_collision_links:
+			workspace_object['allowed_collision_links'] = allowed_collision_links
 		return workspace_object
+
+	def _allowed_collision_matrix_from_workspace(
+		self,
+		workspace_config: Dict[str, Any],
+		collision_object_names: List[str],
+	) -> Optional[AllowedCollisionMatrix]:
+		"""
+		@brief Append workspace object-link allowances to MoveIt's current collision matrix.
+
+		@param workspace_config Workspace configuration loaded from ROS parameters.
+		@param collision_object_names Object ids that were added to the planning scene.
+		@return Merged allowed collision matrix, or None when no pairs are configured.
+		"""
+		valid_objects = set(collision_object_names)
+		pairs: List[tuple[str, str]] = []
+
+		for workspace_object in workspace_config.get('objects', []):
+			object_name = str(workspace_object.get('name', '')).strip()
+			if object_name not in valid_objects:
+				continue
+			for link_name in self._coerce_string_sequence(
+				workspace_object.get('allowed_collision_links', [])
+			):
+				pair = (object_name, link_name)
+				if pair not in pairs:
+					pairs.append(pair)
+
+		if not pairs:
+			return None
+
+		matrix = self._current_allowed_collision_matrix()
+		if matrix is None:
+			self.get_logger().warn(
+				'GetPlanningScene service not available; workspace allowed collisions were not applied '
+				'to avoid replacing the existing MoveIt allowed-collision matrix.'
+			)
+			return None
+
+		matrix = deepcopy(matrix)
+		for object_name, link_name in pairs:
+			self._set_allowed_collision(matrix, object_name, link_name)
+
+		formatted_pairs = [f'{object_name}<->{link_name}' for object_name, link_name in pairs]
+		self.get_logger().info('Appended workspace allowed collisions: ' + ', '.join(formatted_pairs))
+		return matrix
+
+	def _current_allowed_collision_matrix(self) -> Optional[AllowedCollisionMatrix]:
+		"""
+		@brief Fetch MoveIt's current allowed collision matrix.
+
+		@return Current allowed collision matrix, or None when it cannot be fetched.
+		"""
+		if not self._get_planning_scene_client.wait_for_service(timeout_sec=5.0):
+			return None
+
+		request = GetPlanningScene.Request()
+		request.components = PlanningSceneComponents()
+		request.components.components = PlanningSceneComponents.ALLOWED_COLLISION_MATRIX
+
+		future = self._get_planning_scene_client.call_async(request)
+		rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
+		if not future.done() or future.result() is None:
+			return None
+		return future.result().scene.allowed_collision_matrix
+
+	def _set_allowed_collision(
+		self,
+		matrix: AllowedCollisionMatrix,
+		first_name: str,
+		second_name: str,
+	) -> None:
+		"""
+		@brief Mark one collision pair as allowed in an existing collision matrix.
+
+		@param matrix Matrix to mutate.
+		@param first_name First link/object name.
+		@param second_name Second link/object name.
+		"""
+		first_index = self._ensure_allowed_collision_entry(matrix, first_name)
+		second_index = self._ensure_allowed_collision_entry(matrix, second_name)
+		matrix.entry_values[first_index].enabled[second_index] = True
+		matrix.entry_values[second_index].enabled[first_index] = True
+
+	def _ensure_allowed_collision_entry(self, matrix: AllowedCollisionMatrix, entry_name: str) -> int:
+		"""
+		@brief Ensure a link/object has a row and column in the allowed collision matrix.
+
+		@param matrix Matrix to mutate.
+		@param entry_name Link or object name.
+		@return Index of the entry.
+		"""
+		self._normalize_allowed_collision_matrix(matrix)
+		if entry_name in matrix.entry_names:
+			return matrix.entry_names.index(entry_name)
+
+		matrix.entry_names.append(entry_name)
+		for entry in matrix.entry_values:
+			entry.enabled.append(False)
+
+		new_entry = AllowedCollisionEntry()
+		new_entry.enabled = [False] * len(matrix.entry_names)
+		matrix.entry_values.append(new_entry)
+		return len(matrix.entry_names) - 1
+
+	@staticmethod
+	def _normalize_allowed_collision_matrix(matrix: AllowedCollisionMatrix) -> None:
+		"""
+		@brief Make sure the matrix dimensions match its entry names.
+
+		@param matrix Matrix to normalize in place.
+		"""
+		size = len(matrix.entry_names)
+		while len(matrix.entry_values) < size:
+			entry = AllowedCollisionEntry()
+			entry.enabled = [False] * size
+			matrix.entry_values.append(entry)
+		for entry in matrix.entry_values:
+			if len(entry.enabled) < size:
+				entry.enabled.extend([False] * (size - len(entry.enabled)))
 
 	def _pose_dict_from_parameters(self, prefix: str) -> Dict[str, Any]:
 		"""
@@ -523,14 +654,22 @@ class MotionExecutionNode(Node):
 		"""
 		@brief Return the list of configured pose names.
 
-		@return Pose names from the poses_list ROS parameter.
+		@return Pose names from the poses_names or legacy poses_list ROS parameter.
 		"""
+		poses_names = self.get_parameter('poses_names').value
+		if isinstance(poses_names, str):
+			poses_names = [item.strip() for item in poses_names.strip('[]()').split(',') if item.strip()]
+		if isinstance(poses_names, list):
+			configured_names = [str(name).strip() for name in poses_names if str(name).strip()]
+			if configured_names:
+				return configured_names
+
 		poses_list = self.get_parameter('poses_list').value
 		if isinstance(poses_list, str):
 			poses_list = [item.strip() for item in poses_list.strip('[]()').split(',') if item.strip()]
 		if not isinstance(poses_list, list):
 			return []
-		return [str(name) for name in poses_list]
+		return [str(name).strip() for name in poses_list if str(name).strip()]
 
 	def _configured_pose_exists(self, pose_name: str) -> bool:
 		"""
@@ -545,19 +684,33 @@ class MotionExecutionNode(Node):
 		"""
 		@brief Return parameter key variants for a configured pose name.
 
-		@param pose_name Name from poses_list.
-		@return Candidate parameter prefixes, including the suffixless YAML form.
+		@param pose_name Name from poses_names or the legacy poses_list list.
+		@return Candidate parameter prefixes in the poses_values layout plus legacy forms.
 		"""
-		parameter_keys = [pose_name]
+		source_names = [pose_name]
 		if pose_name.endswith('_pose'):
-			parameter_keys.append(pose_name.removesuffix('_pose'))
-		return parameter_keys
+			source_names.append(pose_name.removesuffix('_pose'))
+
+		parameter_keys: List[str] = []
+		for source_name in source_names:
+			normalized_name = str(source_name).strip()
+			if not normalized_name:
+				continue
+			parameter_keys.append(f'poses_values.{normalized_name}')
+			parameter_keys.append(f'poses_list.{normalized_name}')
+			parameter_keys.append(normalized_name)
+
+		unique_parameter_keys: List[str] = []
+		for parameter_key in parameter_keys:
+			if parameter_key not in unique_parameter_keys:
+				unique_parameter_keys.append(parameter_key)
+		return unique_parameter_keys
 
 	def _configured_pose_parameter_key(self, pose_name: str) -> str:
 		"""
 		@brief Return the parameter prefix containing the configured pose data.
 
-		@param pose_name Name from poses_list.
+		@param pose_name Name from poses_names or the legacy poses_list list.
 		@return Structured parameter prefix for pose data.
 		"""
 		default_pose = [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
@@ -593,25 +746,6 @@ class MotionExecutionNode(Node):
 		target_frame = str(self.get_parameter(f'{parameter_key}.target_frame').value).strip()
 		if not target_frame:
 			target_frame = str(self.get_parameter('end_effector_link').value)
-		workspace_to_end_effector_height = float(
-			self.get_parameter('workspace_to_end_effector_height').value
-		)
-
-		if pose_name == 'workspace_center_pose':
-			workspace_center = self._workspace_area_center()
-			if workspace_center is None:
-				raise RuntimeError("Configured pose 'workspace_center_pose' requires a calibrated workspace area.")
-			return self._pose_stamped_from_values(
-				self._workspace_area_frame,
-				[
-					workspace_center['x'],
-					workspace_center['y'],
-					workspace_center['z'] + workspace_to_end_effector_height,
-					pose_values[3],
-					pose_values[4],
-					pose_values[5],
-				],
-			), target_frame
 
 		return self._pose_stamped_from_values(self._planning_frame, pose_values), target_frame
 
@@ -636,35 +770,6 @@ class MotionExecutionNode(Node):
 		pose_stamped.pose.orientation.w = orientation.w
 		return pose_stamped
 
-	def _workspace_area_center(self) -> Optional[Dict[str, float]]:
-		"""
-		@brief Return the calibrated workspace-area center when available.
-
-		@return Center point from workspace-area geometry, otherwise None.
-		"""
-		if self._workspace_area is None:
-			return None
-
-		geometry = self._workspace_area.get('geometry', {})
-		pose = geometry.get('pose', {})
-		position = pose.get('position', {}) if isinstance(pose, dict) else {}
-		if isinstance(position, dict) and all(axis in position for axis in ('x', 'y', 'z')):
-			return {
-				'x': float(position['x']),
-				'y': float(position['y']),
-				'z': float(position['z']),
-			}
-
-		corner_points = geometry.get('corner_points', [])
-		if len(corner_points) != 4:
-			return None
-
-		return {
-			'x': sum(float(point['x']) for point in corner_points) / 4.0,
-			'y': sum(float(point['y']) for point in corner_points) / 4.0,
-			'z': sum(float(point['z']) for point in corner_points) / 4.0,
-		}
-
 	def _coerce_float_sequence(self, value: Any, expected_length: int, name: str) -> List[float]:
 		"""
 		@brief Convert a fixed-length sequence-like value into floats.
@@ -682,6 +787,19 @@ class MotionExecutionNode(Node):
 		if len(items) != expected_length:
 			raise RuntimeError(f"'{name}' must contain {expected_length} values.")
 		return [float(item) for item in items]
+
+	def _coerce_string_sequence(self, value: Any) -> List[str]:
+		"""
+		@brief Convert a parameter value into a list of non-empty strings.
+
+		@param value String or sequence-like parameter value.
+		@return Clean string values.
+		"""
+		if isinstance(value, str):
+			items = [item.strip() for item in value.strip('[]()').split(',')]
+		else:
+			items = list(value)
+		return [str(item).strip().strip('"\'') for item in items if str(item).strip()]
 
 	def _get_bool_parameter(self, name: str) -> bool:
 		"""

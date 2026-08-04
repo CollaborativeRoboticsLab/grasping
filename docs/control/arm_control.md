@@ -37,29 +37,64 @@ If the goal succeeds, the action returns `success=true`. If it fails, the action
 
 ## Named-Pose Flow
 
-For each `MoveToNamedPose` goal, the node looks up `pose_name` in the `poses_list` ROS parameter, reads the matching pose parameter, converts the configured `[x, y, z, roll, pitch, yaw]` pose into a `PoseStamped`, then runs the same workspace validation and MoveIt execution path.
+For each `MoveToNamedPose` goal, the node looks up `pose_name` in the `poses_names` ROS parameter, reads the matching pose parameter from `poses_values.<name>`, converts the configured `[x, y, z, roll, pitch, yaw]` pose into a `PoseStamped`, and then sends it directly to MoveIt without applying the workspace-area filter.
 
-The `workspace_center_pose` name is generated from the calibrated workspace area. Its X and Y come from the workspace center, its Z comes from the workspace center plus `workspace_to_end_effector_height`, and its roll, pitch, and yaw come from the configured `workspace_center_pose` parameter. All other named poses, including `pre_grasp_pose` and `post_grasp_pose`, use their configured position and orientation directly.
+The `workspace_center` name is a manually configured pose. Other named poses, including `pre_grasp` and `post_grasp`, use their configured position and orientation directly.
 
 To move the arm to the configured workspace-center pose from the ROS 2 CLI:
 
 ```bash
 source install/setup.bash
-ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: workspace_center_pose}"
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: workspace_center}"
 ```
 
 To move the arm to the configured pre-grasp pose from the ROS 2 CLI:
 
 ```bash
 source install/setup.bash
-ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: pre_grasp_pose}"
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: pre_grasp}"
 ```
 
 To move the arm to the configured post-grasp pose:
 
 ```bash
 source install/setup.bash
-ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: post_grasp_pose}"
+ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: post_grasp}"
+```
+
+## Reading the Current Pose of a Link/Joint and making it a named pose
+
+Use the following command to read the current pose of a link/joint.
+
+```bash
+source install/setup.bash
+ros2 run grasping_control read_pose --ros-args -p from:=base_link -p to:=camera_link
+```
+
+To read current joint positions instead, use:
+
+```bash
+source install/setup.bash
+ros2 run grasping_control read_pose --ros-args -p mode:=joint
+```
+
+Then update the motion_config.yaml file with the new pose and restart the motion_execution_node to use it as a named pose.
+
+```YAML
+poses_names: ["workspace_center", "pre_grasp", "post_grasp", "<new_named_pose>"]
+poses_values:
+  workspace_center:
+    pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+    target_frame: camera_link
+  pre_grasp:
+    pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+    target_frame: tcp
+  post_grasp:
+    pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+    target_frame: tcp
+  <new_named_pose>:
+    pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
+    target_frame: tcp
 ```
 
 ## Workspace Loading
@@ -69,14 +104,24 @@ At startup, the node reads workspace configuration from ROS parameters. The robo
 From the workspace configuration it reads:
 
 - `workspace_objects` and `workspace_object`, which are converted into MoveIt collision objects
+- optional `workspace_object.<name>.allowed_collision_links`, which allows configured object-link collision pairs in MoveIt's allowed collision matrix
 - `workspace_area`, which is used as an acceptance filter for incoming goals
 - `base_frame`, which is used as the workspace-area reference frame when needed
 
 The robot launch files load `motion_config.yaml` as a ROS parameter file for `motion_execution_node`. That file contains:
 
-- `poses_list`, which controls which pose names the named-pose action accepts
-- one parameter per pose name, such as `workspace_center_pose`, `pre_grasp_pose`, and `post_grasp_pose`, each as `[x, y, z, roll, pitch, yaw]`
-- `workspace_to_end_effector_height`, used only for generated `workspace_center_pose` Z placement
+- `poses_names`, which controls which pose names the named-pose action accepts
+- `poses_values.<name>`, which stores each named pose as `[x, y, z, roll, pitch, yaw]` plus its `target_frame`
+
+Workspace objects may allow collision with specific robot links when a fixed obstacle touches robot mounting hardware. For example:
+
+```yaml
+workspace_object:
+  table:
+    allowed_collision_links: [ur10_base_link]
+```
+
+This still keeps `table` as a collision object for every other robot link.
 
 Unsupported geometry types are skipped with a warning. Supported runtime collision geometry types are:
 
@@ -142,6 +187,7 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 ### Workspace Integration
 
 - `apply_planning_scene_service`: default `/apply_planning_scene`
+- `get_planning_scene_service`: default `/get_planning_scene`, used to preserve the existing MoveIt allowed-collision matrix before appending workspace object-link allowances
 - `workspace_area_marker_topic`: default `/workspace_area_marker`
 
 ## Startup Behavior
@@ -151,7 +197,7 @@ On startup the node:
 1. reads configured named poses from ROS parameters loaded by the launch file
 2. reads workspace objects and optional workspace area from ROS parameters
 3. publishes the workspace marker state
-4. applies collision objects to the planning scene if `ApplyPlanningScene` is available
+4. applies collision objects to the planning scene if `ApplyPlanningScene` is available, appending configured workspace object-link allowances to the existing MoveIt allowed-collision matrix
 5. starts the `MoveToPose` and `MoveToNamedPose` action servers
 
 If `ApplyPlanningScene` is unavailable, the node logs a warning and continues running without loading the planning scene.

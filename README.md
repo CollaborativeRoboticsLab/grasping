@@ -46,12 +46,3 @@ This component transforms grasp poses, applies workspace obstacles to MoveIt, vi
 An external stack is typically used to detect or calculate a grasp pose, and this grasping stack is used to execute motion to that pose. One example of such an external system is listed below.
 
 - [Anygrasp based Grasping pipeline](https://github.com/CollaborativeRoboticsLab/anygrasp_grasping)
-
-## Usage
-
-Refer to the Manipulator specific grasping stack for usage instructions.
-
-For motion execution, use the following command to execute a grasp pose:
-
-
-For named poses, use the following command to execute a grasp pose:

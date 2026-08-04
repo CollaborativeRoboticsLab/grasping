@@ -270,6 +270,13 @@ def _prepare_workspace_object(workspace_object: Dict[str, Any]) -> Dict[str, Any
 	shape = workspace_object.get('shape')
 	if shape is not None:
 		prepared['shape'] = str(shape)
+	allowed_collision_links = workspace_object.get('allowed_collision_links')
+	if isinstance(allowed_collision_links, list):
+		prepared['allowed_collision_links'] = [
+			str(link_name).strip()
+			for link_name in allowed_collision_links
+			if str(link_name).strip()
+		]
 
 	return prepared
 
@@ -380,6 +387,13 @@ def _workspace_objects_from_parameters(parameters: Dict[str, Any]) -> List[Dict[
 		shape = object_config.get('shape')
 		if shape is not None:
 			workspace_object['shape'] = str(shape)
+		allowed_collision_links = object_config.get('allowed_collision_links')
+		if isinstance(allowed_collision_links, list):
+			workspace_object['allowed_collision_links'] = [
+				str(link_name).strip()
+				for link_name in allowed_collision_links
+				if str(link_name).strip()
+			]
 		objects.append(workspace_object)
 	return objects
 
@@ -495,7 +509,7 @@ def _workspace_object_to_parameters(workspace_object: Dict[str, Any]) -> Dict[st
 			float(dimensions.get('y', 0.0)),
 			float(dimensions.get('z', 0.0)),
 		]
-	return {
+	parameters = {
 		'geometry': {
 			'type': geometry_type,
 			'dimensions': dimension_values,
@@ -503,6 +517,14 @@ def _workspace_object_to_parameters(workspace_object: Dict[str, Any]) -> Dict[st
 		},
 		'shape': str(workspace_object.get('shape', '')),
 	}
+	allowed_collision_links = workspace_object.get('allowed_collision_links')
+	if isinstance(allowed_collision_links, list):
+		parameters['allowed_collision_links'] = [
+			str(link_name).strip()
+			for link_name in allowed_collision_links
+			if str(link_name).strip()
+		]
+	return parameters
 
 
 def _pose_to_parameters(pose: Any) -> Dict[str, List[float]]:

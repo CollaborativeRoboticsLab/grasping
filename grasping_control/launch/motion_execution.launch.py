@@ -34,7 +34,13 @@ def _resolve_workspace_config(context, package_share: str) -> str:
 
 
 def _motion_execution_node(context, package_share: str):
-	motion_config = str(Path(package_share) / 'config' / 'motion_config.yaml')
+	motion_config_file = LaunchConfiguration('motion_config_file').perform(context)
+	motion_config_path = Path(motion_config_file).expanduser()
+	motion_config = (
+		str(motion_config_path)
+		if motion_config_path.is_absolute()
+		else str(Path(package_share) / 'config' / motion_config_path)
+	)
 	workspace_config = _resolve_workspace_config(context, package_share)
 	return [
 		Node(
@@ -55,6 +61,7 @@ def generate_launch_description() -> LaunchDescription:
 
 	return LaunchDescription(
 		[
+			DeclareLaunchArgument('motion_config_file', default_value='motion_config.yaml'),
 			DeclareLaunchArgument('workspace_file', default_value='crlab_table.yaml'),
 			OpaqueFunction(function=_motion_execution_node, args=[grasping_control_share]),
 		]

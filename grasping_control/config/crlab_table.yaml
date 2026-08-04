@@ -28,3 +28,4 @@ motion_execution_node:
             position: [-0.04784694164446651, 0.7235747195023372, 0.3408780323103256]
             orientation: [0.0, 0.0, 0.7163828812503475, 0.6977073651979392]
         shape: top_surface_rectangle
+        allowed_collision_links: [ur10_base_link]

@@ -74,5 +74,5 @@ Motion behavior is configured through `motion_config.yaml`:
 | `planning_pipeline_id` | `''` | Optional MoveIt planning pipeline override. Leave empty to use the MoveIt default. |
 | `planner_id` | `''` | Optional planner override within the selected planning pipeline. Leave empty to use the default planner. |
 
-Named poses are triggered through `MoveToNamedPose`, for example with `pose_name=workspace_center_pose`, `pose_name=pre_grasp_pose`, or `pose_name=post_grasp_pose`.
+Named poses are triggered through `MoveToNamedPose`, for example with `pose_name=workspace_center`, `pose_name=pre_grasp`, or `pose_name=post_grasp`.
 
