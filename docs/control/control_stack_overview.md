@@ -5,6 +5,7 @@ This document covers the shared architecture and bringup flow for the grasping c
 Use the topic-specific documents for implementation details:
 
 - [arm_control.md](./arm_control.md) for `motion_execution_node`
+- [simple_grasping.md](./simple_grasping.md) for `simple_grasping`
 - [creation.md](../workspace/creation.md) for `workspace_creation`
 
 ## Architecture
@@ -19,6 +20,8 @@ At runtime the stack usually depends on four subsystems:
 2. The control stack in this package.
 3. MoveIt and the robot driver.
 4. A gripper action server.
+
+An optional fifth control surface is the `simple_grasping` node, which executes a fixed parameterized sequence of named-pose and gripper actions for simple scripted demos.
 
 ## Shared Motion Interface
 

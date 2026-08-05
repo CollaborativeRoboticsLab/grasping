@@ -40,6 +40,7 @@ This component transforms grasp poses, applies workspace obstacles to MoveIt, vi
 - [Workspace Creation](./docs/workspace/creation.md)
 - [Arm Control](./docs/control/arm_control.md)
 - [Control stack overview](./docs/control/control_stack_overview.md)
+- [Simple Grasping](./docs/control/simple_grasping.md)
 
 ### Grasping Pipeline
 

@@ -22,6 +22,13 @@ Its major features are:
 
 This keeps MoveIt, TF, and workspace handling centralized in one server.
 
+## Interfaces
+
+`motion_execution_node` exposes two action interfaces:
+
+- `grasping_msgs/action/MoveToPose` for arbitrary target poses
+- `grasping_msgs/action/MoveToNamedPose` for configured named poses
+
 ## Grasp-Pose Flow
 
 For each `MoveToPose` goal, the node performs the following sequence:
@@ -41,30 +48,23 @@ If the goal succeeds, the action returns `success=true`. If it fails, the action
 
 ## Named-Pose Flow
 
-For each `MoveToNamedPose` goal, the node looks up `pose_name` in the `poses_names` ROS parameter, reads the matching pose parameter from `poses_values.<name>`, converts the configured `[x, y, z, roll, pitch, yaw]` pose into a `PoseStamped`, and then sends it directly to MoveIt without applying the workspace-area filter.
+For each `MoveToNamedPose` goal, the node:
+
+1. Looks up `pose_name` in the `poses_names` ROS parameter.
+2. Reads the matching pose data from `poses_values.<name>`.
+3. Converts the configured `[x, y, z, roll, pitch, yaw]` values into a `PoseStamped`.
+4. Sends the target directly to MoveIt without applying the workspace-area filter.
 
 The `workspace_center` name is a manually configured pose. Other named poses, including `pre_grasp` and `post_grasp`, use their configured position and orientation directly.
 
-To move the arm to the configured workspace-center pose from the ROS 2 CLI:
+To move the arm to any configured named pose from the ROS 2 CLI:
 
 ```bash
 source install/setup.bash
 ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: workspace_center}"
 ```
 
-To move the arm to the configured pre-grasp pose from the ROS 2 CLI:
-
-```bash
-source install/setup.bash
-ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: pre_grasp}"
-```
-
-To move the arm to the configured post-grasp pose:
-
-```bash
-source install/setup.bash
-ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPose "{pose_name: post_grasp}"
-```
+Replace `workspace_center` with any configured entry from `poses_names`, for example `pre_grasp` or `post_grasp`.
 
 ## Reading the Current Pose of a Link/Joint and making it a named pose
 
@@ -82,7 +82,7 @@ source install/setup.bash
 ros2 run grasping_control read_pose --ros-args -p mode:=joint
 ```
 
-Then update the motion_config.yaml file with the new pose and restart the motion_execution_node to use it as a named pose.
+Then update `motion_config.yaml` and restart `motion_execution_node`.
 
 ```YAML
 poses_names: ["workspace_center", "pre_grasp", "post_grasp", "<new_named_pose>"]
@@ -101,7 +101,17 @@ poses_values:
     target_frame: tcp
 ```
 
-## Workspace Loading
+## Motion Configuration
+
+The robot launch files load `motion_config.yaml` as a ROS parameter file for `motion_execution_node`.
+
+That file contains:
+
+- `poses_names`, which controls which pose names the named-pose action accepts
+- `poses_values.<name>`, which stores each named pose as `[x, y, z, roll, pitch, yaw]` plus its `target_frame`
+- planning settings such as `planning_group`, tolerances, planner selection, IK settings, and joint-goal behavior
+
+## Workspace Integration
 
 At startup, the node reads workspace configuration from ROS parameters. The robot launch files load the selected workspace YAML, such as `crlab_table.yaml`, as a ROS parameter file.
 
@@ -111,11 +121,6 @@ From the workspace configuration it reads:
 - optional `workspace_object.<name>.allowed_collision_links`, which allows configured object-link collision pairs in MoveIt's allowed collision matrix
 - `workspace_area`, which is used as an acceptance filter for incoming goals
 - `base_frame`, which is used as the workspace-area reference frame when needed
-
-The robot launch files load `motion_config.yaml` as a ROS parameter file for `motion_execution_node`. That file contains:
-
-- `poses_names`, which controls which pose names the named-pose action accepts
-- `poses_values.<name>`, which stores each named pose as `[x, y, z, roll, pitch, yaw]` plus its `target_frame`
 
 Workspace objects may allow collision with specific robot links when a fixed obstacle touches robot mounting hardware. For example:
 
@@ -139,8 +144,10 @@ If `workspace_area` is not configured, the node accepts targets anywhere in the 
 If `workspace_area` is configured, the node:
 
 - checks the transformed target position against the saved four-corner polygon
-- aborts the goal with `Target pose lies outside the calibrated workspace area.` when the pose is outside
+- aborts `MoveToPose` goals with `Target pose lies outside the calibrated workspace area.` when the pose is outside
 - treats the check as planar, using the XY polygon only
+
+Named poses bypass this filter.
 
 The current filter does not enforce a Z band.
 
@@ -160,11 +167,15 @@ If no workspace area exists, the node publishes a delete marker so stale visuals
 
 The node first tries to convert a target TCP pose into a nearby joint-space goal.
 
+### Nearby IK Path
+
 - The latest `planning_joint_names` state is read from `joint_state_topic` and used as the IK seed.
 - `compute_ik_service` is called for the configured `planning_group` and `end_effector_link` or named-pose target frame.
 - Returned joint angles are shifted by whole turns so each revolute joint stays as close as possible to the current arm configuration.
 - When nearby IK succeeds, the final `MotionPlanRequest` uses `JointConstraint`s instead of TCP pose constraints.
 - When nearby IK fails and fallback is enabled, the node logs the IK reason and falls back to a pose-constrained request.
+
+### Pose-Constrained Fallback
 
 - During pose-constrained fallback, position is represented as a spherical tolerance region around the requested pose.
 - During pose-constrained fallback, orientation is normalized before building the orientation constraint.
@@ -182,6 +193,12 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 - `planning_group`: MoveIt group, default `manipulator`
 - `planning_frame`: planning frame, default `base_link`
 - `end_effector_link`: constrained link, default `tool0` in the node and `tcp` in soft-gripper launch files
+
+### Named Poses
+
+- `poses_names`: accepted named-pose identifiers
+- `poses_values.<name>.pose`: configured pose as `[x, y, z, roll, pitch, yaw]`
+- `poses_values.<name>.target_frame`: link expected to reach the configured pose
 
 ### Planning Tuning
 
@@ -228,7 +245,7 @@ Common failure sources are:
 - incoming pose cannot be transformed into `planning_frame`
 - named pose is not listed in `motion_config.yaml`
 - workspace area is configured but invalid
-- target pose lies outside the calibrated workspace area
+- `MoveToPose` target lies outside the calibrated workspace area
 - no fresh `joint_state_topic` sample is available for `planning_joint_names`
 - `compute_ik_service` is unavailable, times out, or returns a non-success MoveIt error code
 - `MoveGroup` action server is unavailable

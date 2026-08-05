@@ -30,6 +30,7 @@ setup(
         'console_scripts': [
             'motion_execution_node = grasping_control.motion_execution_node:main',
             'read_pose = grasping_control.read_pose:main',
+            'simple_grasping = grasping_control.simple_grasping:main',
             'workspace_creation = grasping_control.workspace_creation_node:main',
             'servo_teleop = grasping_control.servo_teleop:main',
         ],
