@@ -20,8 +20,8 @@ And also supports grasping pose detectors like
 
 In this grasping framework, we evaluate different gripper types. Due to this we focus on custom built grippers and our gripper controller revolves around different types for servos used to build the grippers and are availble in [CollaborativeRoboticsLab/grippers](https://github.com/CollaborativeRoboticsLab/grippers). Instructions related to setup, configuration and customization are in the linked file.
 
-- [Dynamixel Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/dynamixel.md)
-- [Feetech Grippers](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/feetech.md)
+- [ROS2 interface](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/gripper/ros2-interface.md)
+- [Detailed Start Guide](https://github.com/CollaborativeRoboticsLab/grippers/blob/main/docs/detailed-start.md)
 
 ### Manipulator
 
