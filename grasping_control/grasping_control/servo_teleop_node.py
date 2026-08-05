@@ -35,7 +35,7 @@ Other:
 
 class ServoTeleop(Node):
 	def __init__(self) -> None:
-		super().__init__("servo_teleop")
+		super().__init__("servo_teleop_node")
 		self.declare_parameter("topic", "/servo_node/delta_twist_cmds")
 		self.declare_parameter("start_service", "/servo_node/start_servo")
 		self.declare_parameter("stop_service", "/servo_node/stop_servo")

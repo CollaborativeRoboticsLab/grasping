@@ -1,10 +1,10 @@
 # Simple Grasping
 
-This document covers the `simple_grasping` node in the `grasping_control` package.
+This document covers the `simple_grasping_node` executable in the `grasping_control` package.
 
 ## Purpose
 
-`simple_grasping` is a small sequence runner that calls two existing action servers:
+`simple_grasping_node` is a small sequence runner that calls two existing action servers:
 
 - `grasping_msgs/action/MoveToNamedPose` for arm motion
 - `control_msgs/action/GripperCommand` for gripper open and close commands
@@ -36,7 +36,7 @@ Run the node directly with:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control simple_grasping
+ros2 run grasping_control simple_grasping_node
 ```
 
 Run it through the shared launch file with:

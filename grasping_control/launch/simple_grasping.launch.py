@@ -21,8 +21,8 @@ def generate_launch_description() -> LaunchDescription:
 			DeclareLaunchArgument('result_timeout_sec', default_value='120.0'),
 			Node(
 				package='grasping_control',
-				executable='simple_grasping',
-				name='simple_grasping',
+				executable='simple_grasping_node',
+				name='simple_grasping_node',
 				output='screen',
 				parameters=[
 					{

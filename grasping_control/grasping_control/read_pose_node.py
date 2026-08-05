@@ -21,7 +21,7 @@ class ReadPoseNode(Node):
 		"""
 		@brief Declare parameters and create the TF listener.
 		"""
-		super().__init__('read_pose')
+		super().__init__('read_pose_node')
 		self.declare_parameter('mode', 'tf')
 		self.declare_parameter('from', 'world')
 		self.declare_parameter('to', 'tcp')

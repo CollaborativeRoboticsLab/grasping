@@ -27,7 +27,7 @@ With MoveIt Servo already running, start the keyboard teleop:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control servo_teleop
+ros2 run grasping_control servo_teleop_node
 ```
 
 Default key bindings:

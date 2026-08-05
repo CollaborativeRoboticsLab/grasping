@@ -26,7 +26,7 @@ class SimpleGraspingNode(Node):
 		"""
 		@brief Declare parameters and create action clients.
 		"""
-		super().__init__('simple_grasping')
+		super().__init__('simple_grasping_node')
 		self.declare_parameter('arm_action_name', '/move_arm_to_named_pose')
 		self.declare_parameter('gripper_action_name', '/gripper_command')
 		self.declare_parameter(
