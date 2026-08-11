@@ -206,6 +206,8 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 - `num_planning_attempts`: default `5`
 - `max_velocity_scaling`: default `0.2`
 - `max_acceleration_scaling`: default `0.2`
+- `enable_cartesian_vel_limit`: when `true`, derive a MoveIt Cartesian speed cap from per-axis limits for both pose and nearby-IK joint requests
+- `max_cartesian_velocity`: Cartesian directional velocity limits `[x, y, z]` in meters per second in the planning frame; if a request needs movement on an axis whose limit is `0.0`, the node aborts before calling MoveIt and explains why
 - `position_tolerance_m`: default `0.005`
 - `orientation_tolerance_rad`: default `0.1`
 - `planning_pipeline_id`: optional planner pipeline override

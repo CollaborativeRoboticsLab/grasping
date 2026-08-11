@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from geometry_msgs.msg import Point, PoseStamped
@@ -67,6 +68,8 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('num_planning_attempts', 5)
 		self.declare_parameter('max_velocity_scaling', 0.2)
 		self.declare_parameter('max_acceleration_scaling', 0.2)
+		self.declare_parameter('enable_cartesian_vel_limit', False)
+		self.declare_parameter('max_cartesian_velocity', [0.0, 0.0, 0.0])
 		self.declare_parameter('position_tolerance_m', 0.005)
 		self.declare_parameter('orientation_tolerance_rad', 0.1)
 		self.declare_parameter('end_effector_link', 'tool0')
@@ -746,13 +749,21 @@ class MotionExecutionNode(Node):
 
 		# The custom action stays thin and delegates actual motion execution to MoveIt so the
 		# rest of the system can talk to one stable arm-control interface.
+		planning_config, config_error = self._motion_planning_config_for_target(
+			target_pose,
+			target_frame,
+		)
+		if planning_config is None:
+			return False, config_error
+
 		goal: MoveGroup.Goal
 		if self._get_bool_parameter('prefer_nearby_ik'):
 			ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose, target_frame)
 			if ik_ok:
 				goal = build_joint_move_group_goal(
 					ik_payload['joint_state'],
-					self._motion_planning_config(),
+					planning_config,
+					target_frame,
 					ik_payload['start_state'],
 				)
 			else:
@@ -763,12 +774,14 @@ class MotionExecutionNode(Node):
 				)
 				goal = self._build_move_group_goal(
 					target_pose,
+					planning_config,
 					target_frame,
 					self._current_robot_state_or_none(),
 				)
 		else:
 			goal = self._build_move_group_goal(
 				target_pose,
+				planning_config,
 				target_frame,
 				self._current_robot_state_or_none(),
 			)
@@ -800,6 +813,7 @@ class MotionExecutionNode(Node):
 	def _build_move_group_goal(
 		self,
 		target_pose: PoseStamped,
+		planning_config: MotionPlanningConfig,
 		target_frame: Optional[str] = None,
 		start_state: Optional[RobotState] = None,
 	) -> MoveGroup.Goal:
@@ -807,15 +821,126 @@ class MotionExecutionNode(Node):
 		@brief Build a MoveGroup action goal for a target pose.
 
 		@param target_pose Goal pose already expressed in the planning frame.
+		@param planning_config Request-specific planning configuration.
 		@param target_frame Robot frame/link that should reach the target pose.
 		@param start_state Optional robot state used as the planner start state.
 		@return Configured MoveGroup goal.
 		"""
 		return build_move_group_goal(
 			target_pose,
-			self._motion_planning_config(),
+			planning_config,
 			target_frame,
 			start_state,
+		)
+
+	def _motion_planning_config_for_target(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+	) -> tuple[Optional[MotionPlanningConfig], str]:
+		"""
+		@brief Build the planning config for one request, including directional Cartesian limits.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@return Request config plus an error message when the request cannot satisfy the limit.
+		"""
+		config = self._motion_planning_config()
+		if not config.enable_cartesian_vel_limit:
+			return config, ''
+
+		target_link = str(target_frame or config.end_effector_link)
+		try:
+			current_pose = self._current_link_pose_in_planning_frame(target_link)
+			max_cartesian_speed = self._resolve_directional_cartesian_speed_limit(
+				current_pose,
+				target_pose,
+				config,
+				target_link,
+			)
+		except RuntimeError as exc:
+			return None, str(exc)
+
+		return replace(config, max_cartesian_speed=max_cartesian_speed), ''
+
+	def _current_link_pose_in_planning_frame(self, link_name: str) -> PoseStamped:
+		"""
+		@brief Read the current pose of a link in the planning frame from TF.
+
+		@param link_name Link whose pose should be read.
+		@return Current link pose in the planning frame.
+		"""
+		try:
+			transform = self._tf_buffer.lookup_transform(
+				self._planning_frame,
+				link_name,
+				Time(),
+				timeout=rclpy.duration.Duration(seconds=1.0),
+			)
+		except Exception as exc:  # noqa: BLE001
+			raise RuntimeError(
+				f"Unable to evaluate Cartesian velocity limit: could not read current pose of '{link_name}' in '{self._planning_frame}': {exc}"
+			) from exc
+
+		pose = PoseStamped()
+		pose.header.stamp = self.get_clock().now().to_msg()
+		pose.header.frame_id = self._planning_frame
+		pose.pose.position.x = float(transform.transform.translation.x)
+		pose.pose.position.y = float(transform.transform.translation.y)
+		pose.pose.position.z = float(transform.transform.translation.z)
+		pose.pose.orientation = transform.transform.rotation
+		return pose
+
+	def _resolve_directional_cartesian_speed_limit(
+		self,
+		current_pose: PoseStamped,
+		target_pose: PoseStamped,
+		config: MotionPlanningConfig,
+		target_link: str,
+	) -> float:
+		"""
+		@brief Convert per-axis Cartesian velocity limits into one scalar MoveIt speed cap.
+
+		@param current_pose Current link pose in the planning frame.
+		@param target_pose Requested goal pose in the planning frame.
+		@param config Planning configuration.
+		@param target_link Link constrained by the request.
+		@return Scalar Cartesian speed cap for this motion.
+		"""
+		limits = config.max_cartesian_velocity
+		movement_epsilon = max(1e-6, config.position_tolerance_m * 0.1)
+		delta_x = float(target_pose.pose.position.x) - float(current_pose.pose.position.x)
+		delta_y = float(target_pose.pose.position.y) - float(current_pose.pose.position.y)
+		delta_z = float(target_pose.pose.position.z) - float(current_pose.pose.position.z)
+		components = [
+			('x', abs(delta_x), float(limits[0])),
+			('y', abs(delta_y), float(limits[1])),
+			('z', abs(delta_z), float(limits[2])),
+		]
+		active_components = [component for component in components if component[1] > movement_epsilon]
+		if not active_components:
+			return 0.0
+
+		for axis_name, _, axis_limit in active_components:
+			if axis_limit < 0.0:
+				raise RuntimeError(
+					f"Invalid Cartesian velocity limit for axis '{axis_name}': {axis_limit:.4f}. Limits must be non-negative."
+				)
+			if axis_limit == 0.0:
+				raise RuntimeError(
+					'Cartesian velocity limit blocks this motion: '
+					+ f"link '{target_link}' must move along {axis_name} in frame '{self._planning_frame}', "
+					+ f"but max_cartesian_velocity[{axis_name}] is 0.0. "
+					+ 'Increase that axis limit or request a motion without movement on that axis.'
+				)
+
+		translation_norm = sum(component[1] ** 2 for component in active_components) ** 0.5
+		if translation_norm <= 0.0:
+			return 0.0
+
+		return min(
+			axis_limit / (axis_distance / translation_norm)
+			for _, axis_distance, axis_limit in active_components
 		)
 
 	def _joint_goal_from_nearby_ik(
@@ -1060,6 +1185,15 @@ class MotionExecutionNode(Node):
 			num_planning_attempts=int(self.get_parameter('num_planning_attempts').value),
 			max_velocity_scaling=float(self.get_parameter('max_velocity_scaling').value),
 			max_acceleration_scaling=float(self.get_parameter('max_acceleration_scaling').value),
+			enable_cartesian_vel_limit=bool(self.get_parameter('enable_cartesian_vel_limit').value),
+			max_cartesian_velocity=tuple(
+				coerce_float_sequence(
+					self.get_parameter('max_cartesian_velocity').value,
+					3,
+					'max_cartesian_velocity',
+				)
+			),
+			max_cartesian_speed=0.0,
 			position_tolerance_m=float(self.get_parameter('position_tolerance_m').value),
 			orientation_tolerance_rad=float(self.get_parameter('orientation_tolerance_rad').value),
 			end_effector_link=str(self.get_parameter('end_effector_link').value),
