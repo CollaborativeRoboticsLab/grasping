@@ -8,7 +8,6 @@ This stack has extensions to support following manipulators:
 - TM Robots via [CollaborativeRoboticsLab/grasping_tm](https://github.com/CollaborativeRoboticsLab/grasping_tm)
 - Omron Mobile Manipulator Robots via [CollaborativeRoboticsLab/grasping_omron_moma](https://github.com/CollaborativeRoboticsLab/grasping_omron_moma)
 
-
 And also supports grasping pose detectors like 
 - [AnyGrasp](https://github.com/CollaborativeRoboticsLab/anygrasp_ros) via [CollaborativeRoboticsLab/grasping_anygrasp](https://github.com/CollaborativeRoboticsLab/grasping_anygrasp)
 

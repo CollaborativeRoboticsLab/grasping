@@ -218,6 +218,22 @@ def load_yaml_dict(path: Path, default_value: Dict[str, Any]) -> Dict[str, Any]:
     return loaded
 
 
+class _WorkspaceYamlDumper(yaml.SafeDumper):
+    """Custom YAML dumper that keeps scalar sequences in flow style."""
+
+
+def _represent_workspace_sequence(
+    dumper: yaml.SafeDumper,
+    data: list[Any],
+) -> yaml.nodes.SequenceNode:
+    """Serialize flat scalar lists as inline YAML sequences."""
+    flow_style = all(not isinstance(item, (dict, list, tuple, set)) for item in data)
+    return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=flow_style)
+
+
+_WorkspaceYamlDumper.add_representer(list, _represent_workspace_sequence)
+
+
 def write_yaml_dict(path: Path, data: Dict[str, Any]) -> None:
     """
     @brief Persist a dictionary to YAML, creating parent directories as needed.
@@ -227,7 +243,7 @@ def write_yaml_dict(path: Path, data: Dict[str, Any]) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8') as config_file:
-        yaml.safe_dump(data, config_file, sort_keys=False)
+        yaml.dump(data, config_file, Dumper=_WorkspaceYamlDumper, sort_keys=False)
 
 
 def dict_to_pose(pose_dict: Dict[str, Any]) -> Pose:

@@ -858,25 +858,38 @@ class WorkspaceCreationNode(Node):
 		if self._workspace_write_path is not None:
 			return self._workspace_write_path
 
-		save_root = self._workspace_root or self._workspace_config_path.parent
+		default_save_path: Optional[Path] = None
+		save_root = self._workspace_config_path.parent
+		if self._workspace_config_path.name != 'workspace_empty.yaml':
+			default_save_path = self._workspace_config_path
+		elif self._workspace_root is not None:
+			save_root = self._workspace_root
+
 		while rclpy.ok():
-			response = input(f'Save file name in {save_root} (without path): ').strip()
+			if default_save_path is not None:
+				response = input(
+					f'Save workspace file [Enter to overwrite {default_save_path}, or provide a path relative to {save_root}]: '
+				).strip()
+			else:
+				response = input(
+					f'Save workspace file [path relative to {save_root}]: '
+				).strip()
 			if response.lower() in {'cancel', 'c', 'q'}:
 				print('Save cancelled.')
 				return None
 			if not response:
+				if default_save_path is not None:
+					return default_save_path
 				print('File name is required, or type cancel.')
 				continue
 
-			file_name = Path(response)
-			if file_name.name != response:
-				print('Enter a file name only; the file will be saved in the workspace root.')
-				continue
-			if file_name.suffix not in {'.yaml', '.yml'}:
-				file_name = file_name.with_suffix('.yaml')
+			save_path = Path(response).expanduser()
+			if not save_path.is_absolute():
+				save_path = (save_root / save_path).resolve()
+			if save_path.suffix not in {'.yaml', '.yml'}:
+				save_path = save_path.with_suffix('.yaml')
 
-			save_path = save_root / file_name
-			if save_path.exists():
+			if save_path.exists() and save_path != default_save_path:
 				overwrite = input(f'{save_path.name} exists. Overwrite? [y/N]: ').strip().lower()
 				if overwrite not in {'y', 'yes'}:
 					continue
