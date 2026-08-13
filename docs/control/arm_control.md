@@ -72,14 +72,14 @@ Use the following command to read the current pose of a link/joint.
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control read_pose_node --ros-args -p from:=base_link -p to:=camera_link
+ros2 run grasping_teleop read_pose_node --ros-args -p from:=base_link -p to:=camera_link
 ```
 
 To read current joint positions instead, use:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control read_pose_node --ros-args -p mode:=joint
+ros2 run grasping_teleop read_pose_node --ros-args -p mode:=joint
 ```
 
 Then update `motion_config.yaml` and restart `motion_execution_node`.

@@ -29,10 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'motion_execution_node = grasping_control.motion_execution_node:main',
-            'read_pose_node = grasping_control.read_pose_node:main',
             'simple_grasping_node = grasping_control.simple_grasping_node:main',
             'workspace_creation = grasping_control.workspace_creation_node:main',
-            'servo_teleop_node = grasping_control.servo_teleop_node:main',
         ],
     },
 )

@@ -223,7 +223,7 @@ ros2 run grasping_control workspace_creation --ros-args -p workspace_config_path
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control servo_teleop_node
+ros2 run grasping_teleop servo_teleop_node
 ```
 
 Follow the onscreen guidelines to add/edit workspace and objects. After capturing an object, the tool temporarily checks that object against the current robot state in MoveIt and prompts for robot links currently colliding with it. Select detected links by number, type custom link names separated by commas, press Enter to keep the current selection, or type `none` to clear it.

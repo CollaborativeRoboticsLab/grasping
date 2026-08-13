@@ -1,6 +1,6 @@
 # Grasping Control
 
-This package contains the UR10 arm control node and related launch files. It also includes the workspace creation component that applies workspace obstacles to MoveIt and rejects poses outside the calibrated workspace area.
+This package contains the UR10 arm control node, workspace creation flow, and related launch files. It applies workspace obstacles to MoveIt and rejects poses outside the calibrated workspace area.
 
 
 ## Starting the system
@@ -21,22 +21,6 @@ source install/setup.bash
 ros2 launch ur10_soft_two_fingers_moveit_config hardware_with_moveit.launch.py
 ```
 
-## Servo keyboard teleop
+## Teleop utilities
 
-With MoveIt Servo already running, start the keyboard teleop:
-
-```bash
-source install/setup.bash
-ros2 run grasping_control servo_teleop_node
-```
-
-Default key bindings:
-
-- `w/s`: tool-frame `+x / -x`
-- `a/d`: tool-frame `+y / -y`
-- `q/e`: tool-frame `+z / -z`
-- `u/o`: `+roll / -roll`
-- `i/k`: `+pitch / -pitch`
-- `j/l`: `+yaw / -yaw`
-- `space`: stop
-- `x`: quit
+Keyboard teleop and pose-reading helpers now live in the `grasping_teleop` package.

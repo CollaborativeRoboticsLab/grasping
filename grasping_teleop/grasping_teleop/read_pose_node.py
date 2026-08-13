@@ -167,6 +167,7 @@ class ReadPoseNode(Node):
 			print(f'  {joint_name}: {position_rad:.6f} rad ({position_deg:.3f} deg)')
 		return True
 
+
 def main(args: Optional[list[str]] = None) -> None:
 	"""
 	@brief Run the one-shot pose reader.

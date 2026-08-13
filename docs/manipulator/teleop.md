@@ -30,7 +30,7 @@ Run the keyboard teleop in a separate terminal:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control servo_teleop_node
+ros2 run grasping_teleop servo_teleop_node
 ```
 
 The node automatically calls `/servo_node/start_servo` on startup.
@@ -86,7 +86,7 @@ Example with gentler motion:
 
 ```bash
 source install/setup.bash
-ros2 run grasping_control servo_teleop_node --ros-args \
+ros2 run grasping_teleop servo_teleop_node --ros-args \
 	-p linear_speed:=0.15 \
 	-p angular_speed:=0.30 \
 	-p enable_smoothing:=true \
