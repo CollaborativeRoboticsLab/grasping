@@ -72,8 +72,6 @@ Motion behavior is configured through `motion_config.yaml`:
 | `num_planning_attempts` | `5` | Number of planning attempts MoveIt may use before reporting failure. |
 | `max_velocity_scaling` | `0.2` | Velocity scaling factor applied to the generated motion plan. |
 | `max_acceleration_scaling` | `0.2` | Acceleration scaling factor applied to the generated motion plan. |
-| `enable_cartesian_vel_limit` | `false` | When true, `motion_execution_node` derives a per-request MoveIt Cartesian speed cap from the configured directional limits for both pose and nearby-IK joint requests. |
-| `max_cartesian_velocity` | `[0.0, 0.0, 0.0]` | Per-axis Cartesian velocity limits `[x, y, z]` in meters per second in the planning frame. If a request needs motion on an axis whose limit is `0.0`, the node aborts early with an explanation. |
 | `position_tolerance_m` | `0.005` | Positional tolerance in meters used for the end-effector goal constraint. |
 | `orientation_tolerance_rad` | `0.1` | Angular tolerance in radians used for the end-effector orientation constraint. |
 | `planning_pipeline_id` | `''` | Optional MoveIt planning pipeline override. Leave empty to use the MoveIt default. |

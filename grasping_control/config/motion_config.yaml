@@ -10,8 +10,6 @@ motion_execution_node:
     num_planning_attempts: 5
     max_velocity_scaling: 0.2
     max_acceleration_scaling: 0.2
-    enable_cartesian_vel_limit: false
-    max_cartesian_velocity: [0.0, 0.0, 0.0]
     position_tolerance_m: 0.005
     orientation_tolerance_rad: 0.1
     planning_pipeline_id: ''

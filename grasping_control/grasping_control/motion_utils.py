@@ -36,9 +36,6 @@ class MotionPlanningConfig:
 	num_planning_attempts: int
 	max_velocity_scaling: float
 	max_acceleration_scaling: float
-	enable_cartesian_vel_limit: bool
-	max_cartesian_velocity: tuple[float, float, float]
-	max_cartesian_speed: float
 	position_tolerance_m: float
 	orientation_tolerance_rad: float
 	end_effector_link: str
@@ -82,7 +79,7 @@ def build_joint_move_group_goal(
 
 	@param target_joint_state Joint target for the planning group.
 	@param config Planning configuration.
-	@param target_frame Robot frame/link that should satisfy the Cartesian speed cap.
+	@param target_frame Robot frame/link that should satisfy the goal constraints.
 	@param start_state Robot state used as the planner start state.
 	@return Configured MoveGroup goal.
 	"""
@@ -116,7 +113,6 @@ def build_motion_plan_request(
 	request.num_planning_attempts = config.num_planning_attempts
 	request.max_velocity_scaling_factor = config.max_velocity_scaling
 	request.max_acceleration_scaling_factor = config.max_acceleration_scaling
-	_apply_cartesian_speed_limit(request, config, target_frame)
 
 	if config.planning_pipeline_id:
 		request.pipeline_id = config.planning_pipeline_id
@@ -139,7 +135,7 @@ def build_joint_motion_plan_request(
 
 	@param target_joint_state Joint target for the planning group.
 	@param config Planning configuration.
-	@param target_frame Robot frame/link that should satisfy the Cartesian speed cap.
+	@param target_frame Robot frame/link that should satisfy the goal constraints.
 	@param start_state Robot state used as the planner start state.
 	@return Configured MotionPlanRequest instance.
 	"""
@@ -149,7 +145,6 @@ def build_joint_motion_plan_request(
 	request.num_planning_attempts = config.num_planning_attempts
 	request.max_velocity_scaling_factor = config.max_velocity_scaling
 	request.max_acceleration_scaling_factor = config.max_acceleration_scaling
-	_apply_cartesian_speed_limit(request, config, target_frame)
 
 	if config.planning_pipeline_id:
 		request.pipeline_id = config.planning_pipeline_id
@@ -159,28 +154,6 @@ def build_joint_motion_plan_request(
 	request.start_state = start_state if start_state is not None else RobotState()
 	request.goal_constraints = [joint_state_to_constraints(target_joint_state, config.joint_goal_tolerance_rad)]
 	return request
-
-
-def _apply_cartesian_speed_limit(
-	request: MotionPlanRequest,
-	config: MotionPlanningConfig,
-	target_frame: Optional[str],
-) -> None:
-	"""
-	@brief Apply an optional end-effector Cartesian speed cap to the request.
-
-	@param request Request being populated.
-	@param config Planning configuration.
-	@param target_frame Optional target link override.
-	"""
-	if not config.enable_cartesian_vel_limit:
-		return
-	if config.max_cartesian_speed <= 0.0:
-		return
-
-	request.cartesian_speed_end_effector_link = str(target_frame or config.end_effector_link)
-	request.max_cartesian_speed = config.max_cartesian_speed
-
 
 def pose_to_constraints(
 	target_pose: PoseStamped,
