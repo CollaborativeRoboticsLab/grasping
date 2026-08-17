@@ -34,7 +34,7 @@ class SimpleGraspingNode(Node):
 		self.declare_parameter(
 			'sequence',
 			'[[pose, pre_grasp], [pose, workspace_center], [gripper, open], '
-			'[pose, grasp_pose], [gripper, close], [pose, post_grasp]]',
+			'[record, start], [pose, grasp_pose], [gripper, close], [pose, post_grasp], [record, end]]',
 		)
 		self.declare_parameter('open_position', 0.09)
 		self.declare_parameter('open_max_effort', 0.0)
@@ -43,8 +43,10 @@ class SimpleGraspingNode(Node):
 		self.declare_parameter('server_timeout_sec', 10.0)
 		self.declare_parameter('result_timeout_sec', 120.0)
 		self.declare_parameter('startup_delay_sec', 0.0)
+		self.declare_parameter('trial_count', 1)
 		self.declare_parameter('trigger_retention_recording_on_close', False)
 		self.declare_parameter('trigger_retention_recording_service', '/trigger_retention_recording')
+		self.declare_parameter('end_retention_recording_service', '/end_retention_recording')
 		self.declare_parameter('retention_recording_service_timeout_sec', 5.0)
 
 		self._arm_client = ActionClient(
@@ -60,6 +62,10 @@ class SimpleGraspingNode(Node):
 		self._retention_start_client = self.create_client(
 			Trigger,
 			str(self.get_parameter('trigger_retention_recording_service').value),
+		)
+		self._retention_end_client = self.create_client(
+			Trigger,
+			str(self.get_parameter('end_retention_recording_service').value),
 		)
 		self._retention_recording_started = False
 
@@ -89,20 +95,32 @@ class SimpleGraspingNode(Node):
 			self.get_logger().error('Sequence is empty. Configure at least one step.')
 			return False
 
-		for step in sequence:
-			self._maybe_trigger_retention_recording_for_step(step)
-			if step.kind == 'pose':
-				if not self._move_to_named_pose(step.value):
-					return False
-			else:
-				if step.value == 'open':
-					position = float(self.get_parameter('open_position').value)
-					effort = float(self.get_parameter('open_max_effort').value)
+		trial_count = int(self.get_parameter('trial_count').value)
+		if trial_count <= 0:
+			self.get_logger().error('trial_count must be greater than 0.')
+			return False
+
+		for trial_index in range(trial_count):
+			self._retention_recording_started = False
+			self.get_logger().info(
+				f'Starting grasp trial {trial_index + 1}/{trial_count}.'
+			)
+			for step in sequence:
+				if step.kind == 'pose':
+					if not self._move_to_named_pose(step.value):
+						return False
+				elif step.kind == 'record':
+					if not self._run_record_step(step.value):
+						return False
 				else:
-					position = float(self.get_parameter('close_position').value)
-					effort = float(self.get_parameter('close_max_effort').value)
-				if not self._command_gripper(step.value, position, effort):
-					return False
+					if step.value == 'open':
+						position = float(self.get_parameter('open_position').value)
+						effort = float(self.get_parameter('open_max_effort').value)
+					else:
+						position = float(self.get_parameter('close_position').value)
+						effort = float(self.get_parameter('close_max_effort').value)
+					if not self._command_gripper(step.value, position, effort):
+						return False
 
 		self.get_logger().info('Simple grasp sequence completed successfully.')
 		return True
@@ -120,12 +138,16 @@ class SimpleGraspingNode(Node):
 			steps = self._sequence_steps_from_string(str(sequence_value))
 
 		for step in steps:
-			if step.kind not in {'pose', 'gripper'}:
+			if step.kind not in {'pose', 'gripper', 'record'}:
 				raise RuntimeError(
-					f"Unsupported sequence step kind '{step.kind}'. Expected 'pose' or 'gripper'."
+					f"Unsupported sequence step kind '{step.kind}'. Expected 'pose', 'gripper', or 'record'."
 				)
 			if not step.value:
 				raise RuntimeError('Sequence step values must not be empty.')
+			if step.kind == 'record' and step.value not in {'start', 'end'}:
+				raise RuntimeError(
+					f"Unsupported record step '{step.value}'. Expected 'start' or 'end'."
+				)
 		return steps
 
 	def _sequence_steps_from_list(self, sequence_value: list[object]) -> list[SequenceStep]:
@@ -143,7 +165,7 @@ class SimpleGraspingNode(Node):
 			parts = [part.strip() for part in re.split(r'[:,]', text, maxsplit=1)]
 			if len(parts) != 2:
 				raise RuntimeError(
-					"List-based sequence entries must look like 'pose:pre_grasp' or 'gripper:open'."
+					"List-based sequence entries must look like 'pose:pre_grasp', 'gripper:open', or 'record:start'."
 				)
 			steps.append(SequenceStep(parts[0], parts[1]))
 		return steps
@@ -167,7 +189,7 @@ class SimpleGraspingNode(Node):
 		if len(fallback_parts) % 2 != 0:
 			raise RuntimeError(
 				"Sequence string must be a list of [kind, value] pairs, for example "
-				"[[pose, pre_grasp], [gripper, open]]."
+				"[[pose, pre_grasp], [gripper, open], [record, start]]."
 			)
 
 		return [
@@ -238,22 +260,30 @@ class SimpleGraspingNode(Node):
 			self.get_logger().info(
 				f"Gripper command '{label}' completed by reaching the requested holding effort at position={result.position:.4f}, holding_effort={result.effort:.4f}, target_effort={max_effort:.4f}."
 			)
-			self._maybe_start_retention_recording(label)
 			return True
 
 		self.get_logger().info(
 			f"Gripper command '{label}' completed at position={result.position:.4f}."
 		)
-		self._maybe_start_retention_recording(label)
 		return True
 
-	def _maybe_start_retention_recording(self, label: str) -> None:
-		if label != 'close':
-			return
+	def _run_record_step(self, action: str) -> bool:
+		if action == 'start':
+			return self._start_retention_recording()
+		if action == 'end':
+			return self._end_retention_recording()
+		self.get_logger().error(
+			f"Unsupported record action '{action}'. Expected 'start' or 'end'."
+		)
+		return False
+
+	def _start_retention_recording(self) -> bool:
 		if not self._get_bool_parameter('trigger_retention_recording_on_close'):
-			return
+			self.get_logger().warning('Retention recording trigger is disabled.')
+			return False
 		if self._retention_recording_started:
-			return
+			self.get_logger().warning('Retention recording has already started for this trial.')
+			return False
 
 		timeout_sec = max(0.0, float(self.get_parameter('retention_recording_service_timeout_sec').value))
 		service_name = str(self.get_parameter('trigger_retention_recording_service').value)
@@ -261,32 +291,51 @@ class SimpleGraspingNode(Node):
 			self.get_logger().warning(
 				f"Retention recording start service '{service_name}' is not available."
 			)
-			return
+			return False
 
 		future = self._retention_start_client.call_async(Trigger.Request())
 		rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
 		if not future.done() or future.result() is None:
 			self.get_logger().warning('Retention recording start service did not return a result.')
-			return
+			return False
 
 		response = future.result()
 		if not response.success:
 			self.get_logger().warning(
 				'Retention recording did not start: ' + str(response.message)
 			)
-			return
+			return False
 
 		self._retention_recording_started = True
-		self.get_logger().info(str(response.message))  
+		self.get_logger().info(str(response.message))
+		return True
 
-	def _maybe_trigger_retention_recording_for_step(self, step: SequenceStep) -> None:
-		if self._retention_recording_started:
-			return
-		if step.kind != 'pose' or step.value != 'post_grasp':
-			return
-		if not self._get_bool_parameter('trigger_retention_recording_on_close'):
-			return
-		self._maybe_start_retention_recording('close')
+	def _end_retention_recording(self) -> bool:
+		if not self._retention_recording_started:
+			self.get_logger().warning('Retention recording has not been started for this trial.')
+			return False
+		service_name = str(self.get_parameter('end_retention_recording_service').value)
+		timeout_sec = max(0.0, float(self.get_parameter('result_timeout_sec').value))
+		if not self._retention_end_client.wait_for_service(timeout_sec=timeout_sec):
+			self.get_logger().error(
+				f"Retention recording end service '{service_name}' is not available."
+			)
+			return False
+
+		future = self._retention_end_client.call_async(Trigger.Request())
+		rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
+		if not future.done() or future.result() is None:
+			self.get_logger().error('Retention recording end service did not return a result.')
+			return False
+
+		response = future.result()
+		if not response.success:
+			self.get_logger().error('Retention recording did not end cleanly: ' + str(response.message))
+			return False
+
+		self._retention_recording_started = False
+		self.get_logger().info(str(response.message))
+		return True
 
 	def _get_bool_parameter(self, name: str) -> bool:
 		value = self.get_parameter(name).value
