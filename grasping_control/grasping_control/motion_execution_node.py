@@ -99,6 +99,8 @@ class MotionExecutionNode(Node):
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._latest_joint_state: Optional[JointState] = None
 		self._latest_joint_state_received_at: Optional[Time] = None
+		self._latest_joint_positions_by_name: Dict[str, float] = {}
+		self._latest_joint_position_received_at: Dict[str, Time] = {}
 		self._declare_workspace_parameters()
 		self._workspace_area: Optional[Dict[str, Any]] = None
 		self._workspace_area_frame = self._planning_frame
@@ -217,12 +219,23 @@ class MotionExecutionNode(Node):
 
 	def _joint_state_callback(self, msg: JointState) -> None:
 		"""
-		@brief Cache the latest robot joint state for nearby-IK seeding.
+		@brief Merge the latest robot joint state into the internal cache for nearby-IK seeding.
 
 		@param msg Latest joint state message.
 		"""
-		self._latest_joint_state = deepcopy(msg)
-		self._latest_joint_state_received_at = self.get_clock().now()
+		now = self.get_clock().now()
+		positions_by_name = self._joint_positions_by_name(msg)
+		for joint_name, position in positions_by_name.items():
+			self._latest_joint_positions_by_name[joint_name] = float(position)
+			self._latest_joint_position_received_at[joint_name] = now
+
+		joint_names = list(self._latest_joint_positions_by_name.keys())
+		self._latest_joint_state = self._joint_state_from_positions(
+			joint_names,
+			self._latest_joint_positions_by_name,
+			stamp=now,
+		)
+		self._latest_joint_state_received_at = now
 
 	def _execute_move_to_pose(self, goal_handle: Any) -> MoveToPose.Result:
 		"""
@@ -868,23 +881,35 @@ class MotionExecutionNode(Node):
 
 		@return Planning-joint JointState plus a status message.
 		"""
-		if self._latest_joint_state is None or self._latest_joint_state_received_at is None:
+		if not self._latest_joint_positions_by_name:
 			return None, 'no /joint_states message has been received yet.'
 
 		timeout_sec = float(self.get_parameter('joint_state_timeout_sec').value)
-		if timeout_sec > 0.0:
-			age_sec = (self.get_clock().now() - self._latest_joint_state_received_at).nanoseconds / 1e9
-			if age_sec > timeout_sec:
-				return None, (
-					f'latest /joint_states sample is stale ({age_sec:.3f}s old, '
-					f'timeout {timeout_sec:.3f}s).'
-				)
-
-		positions_by_name = self._joint_positions_by_name(self._latest_joint_state)
+		now = self.get_clock().now()
+		positions_by_name = self._latest_joint_positions_by_name
 		planning_joint_names = self._planning_joint_names()
 		missing_joint_names = [name for name in planning_joint_names if name not in positions_by_name]
 		if missing_joint_names:
 			return None, 'latest /joint_states message is missing planning joints: ' + ', '.join(missing_joint_names)
+
+		if timeout_sec > 0.0:
+			stale_joint_names = []
+			oldest_age_sec = 0.0
+			for joint_name in planning_joint_names:
+				received_at = self._latest_joint_position_received_at.get(joint_name)
+				if received_at is None:
+					stale_joint_names.append(joint_name)
+					continue
+				age_sec = (now - received_at).nanoseconds / 1e9
+				oldest_age_sec = max(oldest_age_sec, age_sec)
+				if age_sec > timeout_sec:
+					stale_joint_names.append(joint_name)
+			if stale_joint_names:
+				return None, (
+					'latest planning joint state is stale '
+					f'({oldest_age_sec:.3f}s oldest sample, timeout {timeout_sec:.3f}s) for joints: '
+					+ ', '.join(stale_joint_names)
+				)
 
 		return self._joint_state_from_positions(planning_joint_names, positions_by_name), 'ok'
 
@@ -1027,16 +1052,18 @@ class MotionExecutionNode(Node):
 		self,
 		joint_names: List[str],
 		positions_by_name: Dict[str, float],
+		stamp: Optional[Time] = None,
 	) -> JointState:
 		"""
 		@brief Build a stamped JointState from ordered joint names and a position mapping.
 
 		@param joint_names Ordered joint names.
 		@param positions_by_name Joint positions keyed by joint name.
+		@param stamp Optional timestamp to write into the message header.
 		@return Stamped JointState in the requested order.
 		"""
 		joint_state = JointState()
-		joint_state.header.stamp = self.get_clock().now().to_msg()
+		joint_state.header.stamp = (stamp or self.get_clock().now()).to_msg()
 		joint_state.name = list(joint_names)
 		joint_state.position = [positions_by_name[name] for name in joint_names]
 		return joint_state

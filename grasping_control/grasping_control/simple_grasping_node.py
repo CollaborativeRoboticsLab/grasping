@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -9,6 +10,7 @@ from grasping_msgs.action import MoveToNamedPose
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from std_srvs.srv import Trigger
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,10 @@ class SimpleGraspingNode(Node):
 		self.declare_parameter('close_max_effort', 5.0)
 		self.declare_parameter('server_timeout_sec', 10.0)
 		self.declare_parameter('result_timeout_sec', 120.0)
+		self.declare_parameter('startup_delay_sec', 0.0)
+		self.declare_parameter('trigger_retention_recording_on_close', False)
+		self.declare_parameter('trigger_retention_recording_service', '/trigger_retention_recording')
+		self.declare_parameter('retention_recording_service_timeout_sec', 5.0)
 
 		self._arm_client = ActionClient(
 			self,
@@ -51,6 +57,11 @@ class SimpleGraspingNode(Node):
 			GripperCommand,
 			str(self.get_parameter('gripper_action_name').value),
 		)
+		self._retention_start_client = self.create_client(
+			Trigger,
+			str(self.get_parameter('trigger_retention_recording_service').value),
+		)
+		self._retention_recording_started = False
 
 	def run(self) -> bool:
 		"""
@@ -66,12 +77,20 @@ class SimpleGraspingNode(Node):
 			self.get_logger().error('Gripper action server is not available.')
 			return False
 
+		startup_delay_sec = max(0.0, float(self.get_parameter('startup_delay_sec').value))
+		if startup_delay_sec > 0.0:
+			self.get_logger().info(
+				f'Waiting {startup_delay_sec:.2f}s before starting the grasp sequence.'
+			)
+			time.sleep(startup_delay_sec)
+
 		sequence = self._load_sequence()
 		if not sequence:
 			self.get_logger().error('Sequence is empty. Configure at least one step.')
 			return False
 
 		for step in sequence:
+			self._maybe_trigger_retention_recording_for_step(step)
 			if step.kind == 'pose':
 				if not self._move_to_named_pose(step.value):
 					return False
@@ -209,16 +228,71 @@ class SimpleGraspingNode(Node):
 		result = self._wait_for_result(goal_handle)
 		if result is None:
 			return False
-		if not bool(result.reached_goal):
+		allow_stall = label == 'close' and abs(max_effort) > 0.0
+		if not bool(result.reached_goal or (allow_stall and result.stalled)):
 			self.get_logger().error(
-				f"Gripper command '{label}' did not reach the goal."
+				f"Gripper command '{label}' did not reach the goal (reached_goal={bool(result.reached_goal)}, stalled={bool(result.stalled)})."
 			)
 			return False
+		if bool(result.stalled):
+			self.get_logger().info(
+				f"Gripper command '{label}' completed by reaching the requested holding effort at position={result.position:.4f}, holding_effort={result.effort:.4f}, target_effort={max_effort:.4f}."
+			)
+			self._maybe_start_retention_recording(label)
+			return True
 
 		self.get_logger().info(
 			f"Gripper command '{label}' completed at position={result.position:.4f}."
 		)
+		self._maybe_start_retention_recording(label)
 		return True
+
+	def _maybe_start_retention_recording(self, label: str) -> None:
+		if label != 'close':
+			return
+		if not self._get_bool_parameter('trigger_retention_recording_on_close'):
+			return
+		if self._retention_recording_started:
+			return
+
+		timeout_sec = max(0.0, float(self.get_parameter('retention_recording_service_timeout_sec').value))
+		service_name = str(self.get_parameter('trigger_retention_recording_service').value)
+		if not self._retention_start_client.wait_for_service(timeout_sec=timeout_sec):
+			self.get_logger().warning(
+				f"Retention recording start service '{service_name}' is not available."
+			)
+			return
+
+		future = self._retention_start_client.call_async(Trigger.Request())
+		rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
+		if not future.done() or future.result() is None:
+			self.get_logger().warning('Retention recording start service did not return a result.')
+			return
+
+		response = future.result()
+		if not response.success:
+			self.get_logger().warning(
+				'Retention recording did not start: ' + str(response.message)
+			)
+			return
+
+		self._retention_recording_started = True
+		self.get_logger().info(str(response.message))  
+
+	def _maybe_trigger_retention_recording_for_step(self, step: SequenceStep) -> None:
+		if self._retention_recording_started:
+			return
+		if step.kind != 'pose' or step.value != 'post_grasp':
+			return
+		if not self._get_bool_parameter('trigger_retention_recording_on_close'):
+			return
+		self._maybe_start_retention_recording('close')
+
+	def _get_bool_parameter(self, name: str) -> bool:
+		value = self.get_parameter(name).value
+		if isinstance(value, str):
+			return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+		return bool(value)
 
 	def _send_goal(self, client: ActionClient, goal: object) -> Optional[object]:
 		"""
@@ -269,6 +343,7 @@ def main(args: Optional[list[str]] = None) -> None:
 		ok = node.run()
 	finally:
 		node.destroy_node()
-		rclpy.shutdown()
+		if rclpy.ok():
+			rclpy.shutdown()
 	if not ok:
 		raise SystemExit(1)
