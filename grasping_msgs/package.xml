@@ -3,7 +3,7 @@
 <package format="3">
   <name>grasping_msgs</name>
   <version>0.1.0</version>
-  <description>ROS 2 action interfaces for grasping arm motion planning and control.</description>
+  <description>ROS 2 action and service interfaces for grasping arm motion planning, control, and feasibility checks.</description>
   <maintainer email="kalanaratnayake95@gmail.com">ubuntu</maintainer>
   <license>MIT</license>
 

@@ -16,8 +16,14 @@ set(action_files
   "action/MoveToJointPose.action"
 )
 
+set(service_files
+  "srv/CheckCartesianPoseFeasibility.srv"
+  "srv/CheckJointPoseFeasibility.srv"
+)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${action_files}
+  ${service_files}
   DEPENDENCIES geometry_msgs sensor_msgs
 )
 

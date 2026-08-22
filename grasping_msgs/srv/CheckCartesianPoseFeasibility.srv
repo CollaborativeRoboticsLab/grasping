@@ -1,0 +1,15 @@
+geometry_msgs/Pose pose
+string frame_id
+string mode
+---
+bool feasible
+string mode_used
+string failure_reason
+string suggested_fallback
+string message
+string planning_frame
+geometry_msgs/Pose planning_pose
+bool planning_pose_valid
+sensor_msgs/JointState joint_state_solution
+bool joint_state_solution_valid
+string[] collision_contacts

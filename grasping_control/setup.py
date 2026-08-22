@@ -28,6 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'feasibility_service_node = grasping_control.feasibility_service_node:main',
             'motion_execution_node = grasping_control.motion_execution_node:main',
             'simple_grasping_node = grasping_control.simple_grasping_node:main',
             'workspace_creation = grasping_control.workspace_creation_node:main',
