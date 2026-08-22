@@ -8,15 +8,17 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 set(action_files
   "action/MoveToPose.action"
   "action/MoveToNamedPose.action"
+  "action/MoveToJointPose.action"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${action_files}
-  DEPENDENCIES geometry_msgs
+  DEPENDENCIES geometry_msgs sensor_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

@@ -2,6 +2,7 @@ motion_execution_node:
   ros__parameters:
     action_name: move_arm_to_pose
     named_pose_action_name: move_arm_to_named_pose
+    joint_pose_action_name: move_arm_to_joint_pose
     move_group_action_name: move_action
     planning_group: manipulator
     planning_frame: base_link

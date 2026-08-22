@@ -6,7 +6,7 @@ For calibration of the workspace file consumed by this node, see [creation.md](.
 
 ## Features
 
-`motion_execution_node` owns all robot-motion details after a client submits a grasp-pose or named-pose action goal.
+`motion_execution_node` owns all robot-motion details after a client submits a grasp-pose, named-pose, or joint-pose action goal.
 
 Its major features are:
 
@@ -24,10 +24,11 @@ This keeps MoveIt, TF, and workspace handling centralized in one server.
 
 ## Interfaces
 
-`motion_execution_node` exposes two action interfaces:
+`motion_execution_node` exposes three action interfaces:
 
 - `grasping_msgs/action/MoveToPose` for arbitrary target poses
 - `grasping_msgs/action/MoveToNamedPose` for configured named poses
+- `grasping_msgs/action/MoveToJointPose` for explicit joint-space targets executed against the grasping-owned planning scene
 
 ## Grasp-Pose Flow
 
@@ -65,6 +66,23 @@ ros2 action send_goal /move_arm_to_named_pose grasping_msgs/action/MoveToNamedPo
 ```
 
 Replace `workspace_center` with any configured entry from `poses_names`, for example `pre_grasp` or `post_grasp`.
+
+## Joint-Pose Flow
+
+For each `MoveToJointPose` goal, the node:
+
+1. Validates that at least one joint name is supplied.
+2. Validates that `target_joint_state.name` and `target_joint_state.position` have matching lengths.
+3. Reuses the planning configuration already loaded by `motion_config.yaml`.
+4. Builds a joint-constrained `MoveGroup` request against the same planning scene used by the other grasping actions.
+5. Sends the request to MoveIt and returns the final status message.
+
+To move the arm to a joint-space target from the ROS 2 CLI:
+
+```bash
+source install/setup.bash
+ros2 action send_goal /move_arm_to_joint_pose grasping_msgs/action/MoveToJointPose "{target_joint_state: {name: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint], position: [0.0, -1.57, 1.57, -1.57, -1.57, 0.0]}}"
+```
 
 ## Reading the Current Pose of a Link/Joint and making it a named pose
 
@@ -109,7 +127,7 @@ That file contains:
 
 - `poses_names`, which controls which pose names the named-pose action accepts
 - `poses_values.<name>`, which stores each named pose as `[x, y, z, roll, pitch, yaw]` plus its `target_frame`
-- planning settings such as `planning_group`, tolerances, planner selection, IK settings, and joint-goal behavior
+- planning settings such as `planning_group`, tolerances, planner selection, IK settings, and joint-goal behavior used by both pose and joint-space requests
 
 ## Workspace Integration
 
@@ -189,6 +207,7 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 
 - `action_name`: action server name, default `move_arm_to_pose`
 - `named_pose_action_name`: named-pose action server name, default `move_arm_to_named_pose`
+- `joint_pose_action_name`: joint-pose action server name, default `move_arm_to_joint_pose`
 - `move_group_action_name`: MoveIt action name, default `move_action`
 - `planning_group`: MoveIt group, default `manipulator`
 - `planning_frame`: planning frame, default `base_link`
@@ -234,7 +253,7 @@ On startup the node:
 2. reads workspace objects and optional workspace area from ROS parameters
 3. publishes the workspace marker state
 4. applies collision objects to the planning scene if `ApplyPlanningScene` is available, appending configured workspace object-link allowances to the existing MoveIt allowed-collision matrix
-5. starts the `MoveToPose` and `MoveToNamedPose` action servers
+5. starts the `MoveToPose`, `MoveToNamedPose`, and `MoveToJointPose` action servers
 
 If `ApplyPlanningScene` is unavailable, the node logs a warning and continues running without loading the planning scene.
 

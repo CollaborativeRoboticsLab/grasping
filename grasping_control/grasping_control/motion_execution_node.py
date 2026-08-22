@@ -32,7 +32,7 @@ from grasping_control.workspace_utils import (
 	point_in_workspace_area,
 	workspace_config_from_node_parameters,
 )
-from grasping_msgs.action import MoveToNamedPose, MoveToPose
+from grasping_msgs.action import MoveToJointPose, MoveToNamedPose, MoveToPose
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
 	AllowedCollisionMatrix,
@@ -71,6 +71,7 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('orientation_tolerance_rad', 0.1)
 		self.declare_parameter('end_effector_link', 'tool0')
 		self.declare_parameter('named_pose_action_name', 'move_arm_to_named_pose')
+		self.declare_parameter('joint_pose_action_name', 'move_arm_to_joint_pose')
 		self.declare_parameter('poses_names', ['workspace_center', 'pre_grasp', 'post_grasp'])
 		self.declare_parameter('poses_list', [])
 		self.declare_parameter('apply_planning_scene_service', '/apply_planning_scene')
@@ -160,6 +161,14 @@ class MotionExecutionNode(Node):
 			goal_callback=self._named_pose_goal_callback,
 			cancel_callback=self._cancel_callback,
 		)
+		self._joint_pose_action_server = ActionServer(
+			self,
+			MoveToJointPose,
+			str(self.get_parameter('joint_pose_action_name').value),
+			execute_callback=self._execute_move_to_joint_pose,
+			goal_callback=self._joint_pose_goal_callback,
+			cancel_callback=self._cancel_callback,
+		)
 
 		# Load static workspace obstacles once at startup so every later arm action is planned
 		# against the calibrated scene written by workspace_creation_node.py.
@@ -170,6 +179,9 @@ class MotionExecutionNode(Node):
 		)
 		self.get_logger().info(
 			f"Named-pose action server ready on {self.get_parameter('named_pose_action_name').value}"
+		)
+		self.get_logger().info(
+			f"Joint-pose action server ready on {self.get_parameter('joint_pose_action_name').value}"
 		)
 		self.get_logger().info(
 			'Nearby IK preference is '
@@ -184,6 +196,7 @@ class MotionExecutionNode(Node):
 		"""
 		self._grasp_pose_action_server.destroy()
 		self._named_pose_action_server.destroy()
+		self._joint_pose_action_server.destroy()
 		return super().destroy_node()
 
 	def _goal_callback(self, _goal_request: MoveToPose.Goal) -> GoalResponse:
@@ -205,6 +218,25 @@ class MotionExecutionNode(Node):
 		pose_name = str(goal_request.pose_name).strip()
 		if not self._configured_pose_exists(pose_name):
 			self.get_logger().warn(f"Rejecting unknown configured pose '{pose_name}'.")
+			return GoalResponse.REJECT
+		return GoalResponse.ACCEPT
+
+	def _joint_pose_goal_callback(self, goal_request: MoveToJointPose.Goal) -> GoalResponse:
+		"""
+		@brief Accept joint-pose goals only when the joint target is well-formed.
+
+		@param goal_request Requested joint-pose payload.
+		@return Goal acceptance decision.
+		"""
+		joint_state = goal_request.target_joint_state
+		joint_names = [str(name).strip() for name in joint_state.name if str(name).strip()]
+		if not joint_names:
+			self.get_logger().warn('Rejecting joint-pose goal with no joint names.')
+			return GoalResponse.REJECT
+		if len(joint_names) != len(joint_state.position):
+			self.get_logger().warn(
+				'Rejecting joint-pose goal because joint_names and joint_positions lengths differ.'
+			)
 			return GoalResponse.REJECT
 		return GoalResponse.ACCEPT
 
@@ -323,6 +355,53 @@ class MotionExecutionNode(Node):
 			message = str(exc)
 
 		result = MoveToNamedPose.Result()
+		result.success = bool(ok)
+		result.message = message
+
+		if ok:
+			goal_handle.succeed()
+		else:
+			goal_handle.abort()
+		return result
+
+	def _execute_move_to_joint_pose(self, goal_handle: Any) -> MoveToJointPose.Result:
+		"""
+		@brief Plan and execute a joint-space arm target through the configured MoveIt scene.
+
+		@param goal_handle Active joint-pose action goal handle.
+		@return Action result describing the outcome.
+		"""
+		feedback = MoveToJointPose.Feedback()
+		joint_state = deepcopy(goal_handle.request.target_joint_state)
+
+		try:
+			feedback.state = 'validating_joint_target'
+			goal_handle.publish_feedback(feedback)
+			joint_names = [str(name).strip() for name in joint_state.name if str(name).strip()]
+			joint_positions = [float(position) for position in joint_state.position]
+			if not joint_names:
+				raise RuntimeError('Joint target must include at least one joint name.')
+			if len(joint_names) != len(joint_positions):
+				raise RuntimeError('Joint target names and positions must have the same length.')
+
+			joint_state.name = joint_names
+			joint_state.position = joint_positions
+			joint_state.velocity = []
+			joint_state.effort = []
+			joint_state.header.stamp = self.get_clock().now().to_msg()
+
+			feedback.state = 'planning_and_executing'
+			goal_handle.publish_feedback(feedback)
+			ok, message = self._move_to_joint_state(
+				joint_state,
+				self._motion_planning_config(),
+			)
+
+		except Exception as exc:  # noqa: BLE001
+			ok = False
+			message = str(exc)
+
+		result = MoveToJointPose.Result()
 		result.success = bool(ok)
 		result.message = message
 
@@ -791,6 +870,39 @@ class MotionExecutionNode(Node):
 				self._current_robot_state_or_none(),
 			)
 
+		return self._execute_move_group_goal(goal)
+
+	def _move_to_joint_state(
+		self,
+		target_joint_state: JointState,
+		planning_config: MotionPlanningConfig,
+	) -> tuple[bool, str]:
+		"""
+		@brief Send a MoveGroup action goal for the requested joint target.
+
+		@param target_joint_state Joint target for the planning group.
+		@param planning_config Request-specific planning configuration.
+		@return Tuple of success flag and status message.
+		"""
+		action_name = str(self.get_parameter('move_group_action_name').value)
+		if not self._movegroup_client.wait_for_server(timeout_sec=5.0):
+			return False, f"MoveGroup action server '{action_name}' not available."
+
+		goal = build_joint_move_group_goal(
+			target_joint_state,
+			planning_config,
+			None,
+			self._current_robot_state_or_none(),
+		)
+		return self._execute_move_group_goal(goal)
+
+	def _execute_move_group_goal(self, goal: MoveGroup.Goal) -> tuple[bool, str]:
+		"""
+		@brief Send a prepared MoveGroup goal and wait for the final result.
+
+		@param goal Fully configured MoveGroup goal.
+		@return Tuple of success flag and status message.
+		"""
 		send_future = self._movegroup_client.send_goal_async(goal)
 		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
 		if not send_future.done() or send_future.result() is None:
