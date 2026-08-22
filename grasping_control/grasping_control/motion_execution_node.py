@@ -78,6 +78,7 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('get_planning_scene_service', '/get_planning_scene')
 		self.declare_parameter('compute_ik_service', '/compute_ik')
 		self.declare_parameter('joint_state_topic', '/joint_states')
+		self.declare_parameter('planning_joint_state_topic', '/manipulator_joint_states')
 		self.declare_parameter(
 			'planning_joint_names',
 			[
@@ -143,6 +144,11 @@ class MotionExecutionNode(Node):
 			JointState,
 			str(self.get_parameter('joint_state_topic').value),
 			self._joint_state_callback,
+			10,
+		)
+		self._planning_joint_state_publisher = self.create_publisher(
+			JointState,
+			str(self.get_parameter('planning_joint_state_topic').value),
 			10,
 		)
 		self._grasp_pose_action_server = ActionServer(
@@ -268,6 +274,16 @@ class MotionExecutionNode(Node):
 			stamp=now,
 		)
 		self._latest_joint_state_received_at = now
+
+		planning_joint_names = self._planning_joint_names()
+		if all(joint_name in positions_by_name for joint_name in planning_joint_names):
+			self._planning_joint_state_publisher.publish(
+				self._joint_state_from_positions(
+					planning_joint_names,
+					positions_by_name,
+					stamp=now,
+				)
+			)
 
 	def _execute_move_to_pose(self, goal_handle: Any) -> MoveToPose.Result:
 		"""
