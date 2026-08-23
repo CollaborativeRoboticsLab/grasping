@@ -3,6 +3,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -53,6 +54,17 @@ def _motion_execution_node(context, package_share: str):
 				workspace_config,
 			],
 		)
+		Node(
+			package='grasping_control',
+			executable='feasibility_service_node',
+			name='feasibility_service_node',
+			output='screen',
+			parameters=[
+				motion_config,
+				workspace_config,
+			],
+			condition=IfCondition(LaunchConfiguration('launch_feasiblity_service')),
+		),
 	]
 
 
@@ -63,6 +75,7 @@ def generate_launch_description() -> LaunchDescription:
 		[
 			DeclareLaunchArgument('motion_config_file', default_value='motion_config.yaml'),
 			DeclareLaunchArgument('workspace_file', default_value='crlab_table.yaml'),
+			DeclareLaunchArgument('launch_feasiblity_service', default_value='false'),
 			OpaqueFunction(function=_motion_execution_node, args=[grasping_control_share]),
 		]
 	)
