@@ -24,6 +24,7 @@ from grasping_control.motion_utils import (
 	append_allowed_collision_pairs,
 	build_joint_move_group_goal,
 	build_move_group_goal,
+	planning_config_from_node,
 	robot_state_from_joint_state,
 )
 from grasping_control.workspace_utils import (
@@ -944,14 +945,14 @@ class MotionExecutionNode(Node):
 				self.get_logger().warn(
 					ik_message + ' Falling back to pose-constrained planning request.'
 				)
-				goal = self._build_move_group_goal(
+				goal = build_move_group_goal(
 					target_pose,
 					planning_config,
 					target_frame,
 					self._current_robot_state_or_none(),
 				)
 		else:
-			goal = self._build_move_group_goal(
+			goal = build_move_group_goal(
 				target_pose,
 				planning_config,
 				target_frame,
@@ -1014,29 +1015,6 @@ class MotionExecutionNode(Node):
 			)
 
 		return True, 'Arm motion completed successfully.'
-
-	def _build_move_group_goal(
-		self,
-		target_pose: PoseStamped,
-		planning_config: MotionPlanningConfig,
-		target_frame: Optional[str] = None,
-		start_state: Optional[RobotState] = None,
-	) -> MoveGroup.Goal:
-		"""
-		@brief Build a MoveGroup action goal for a target pose.
-
-		@param target_pose Goal pose already expressed in the planning frame.
-		@param planning_config Request-specific planning configuration.
-		@param target_frame Robot frame/link that should reach the target pose.
-		@param start_state Optional robot state used as the planner start state.
-		@return Configured MoveGroup goal.
-		"""
-		return build_move_group_goal(
-			target_pose,
-			planning_config,
-			target_frame,
-			start_state,
-		)
 
 	def _joint_goal_from_nearby_ik(
 		self,
@@ -1287,20 +1265,7 @@ class MotionExecutionNode(Node):
 
 		@return Immutable motion planning configuration.
 		"""
-		return MotionPlanningConfig(
-			planning_frame=self._planning_frame,
-			planning_group=str(self.get_parameter('planning_group').value),
-			allowed_planning_time=float(self.get_parameter('allowed_planning_time').value),
-			num_planning_attempts=int(self.get_parameter('num_planning_attempts').value),
-			max_velocity_scaling=float(self.get_parameter('max_velocity_scaling').value),
-			max_acceleration_scaling=float(self.get_parameter('max_acceleration_scaling').value),
-			position_tolerance_m=float(self.get_parameter('position_tolerance_m').value),
-			orientation_tolerance_rad=float(self.get_parameter('orientation_tolerance_rad').value),
-			end_effector_link=str(self.get_parameter('end_effector_link').value),
-			joint_goal_tolerance_rad=float(self.get_parameter('joint_goal_tolerance_rad').value),
-			planning_pipeline_id=str(self.get_parameter('planning_pipeline_id').value),
-			planner_id=str(self.get_parameter('planner_id').value),
-		)
+		return planning_config_from_node(self, self._planning_frame)
 
 
 def main(args: Optional[List[str]] = None) -> None:

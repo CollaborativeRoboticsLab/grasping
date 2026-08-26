@@ -20,6 +20,7 @@ from moveit_msgs.msg import (
 )
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
+from rclpy.node import Node
 
 from grasping_control.common import Quaternion, coerce_string_sequence, normalize_quaternion
 
@@ -49,6 +50,7 @@ def build_move_group_goal(
 	config: MotionPlanningConfig,
 	target_frame: Optional[str] = None,
 	start_state: Optional[RobotState] = None,
+	plan_only: bool = False,
 ) -> MoveGroup.Goal:
 	"""
 	@brief Build a MoveGroup goal for a target pose.
@@ -61,7 +63,7 @@ def build_move_group_goal(
 	goal = MoveGroup.Goal()
 	goal.request = build_motion_plan_request(target_pose, config, target_frame, start_state)
 	goal.planning_options = PlanningOptions()
-	goal.planning_options.plan_only = False
+	goal.planning_options.plan_only = plan_only
 	goal.planning_options.look_around = False
 	goal.planning_options.replan = False
 	goal.planning_options.replan_attempts = 0
@@ -73,6 +75,7 @@ def build_joint_move_group_goal(
 	config: MotionPlanningConfig,
 	target_frame: Optional[str] = None,
 	start_state: Optional[RobotState] = None,
+	plan_only: bool = False,
 ) -> MoveGroup.Goal:
 	"""
 	@brief Build a MoveGroup goal for a joint-space target.
@@ -86,11 +89,35 @@ def build_joint_move_group_goal(
 	goal = MoveGroup.Goal()
 	goal.request = build_joint_motion_plan_request(target_joint_state, config, target_frame, start_state)
 	goal.planning_options = PlanningOptions()
-	goal.planning_options.plan_only = False
+	goal.planning_options.plan_only = plan_only
 	goal.planning_options.look_around = False
 	goal.planning_options.replan = False
 	goal.planning_options.replan_attempts = 0
 	return goal
+
+
+def planning_config_from_node(node: Node, planning_frame: str) -> MotionPlanningConfig:
+	"""
+	@brief Build MotionPlanningConfig from a node using the shared grasping parameter names.
+
+	@param node ROS node that owns the motion-planning parameters.
+	@param planning_frame Planning frame already resolved by the caller.
+	@return Immutable planning configuration.
+	"""
+	return MotionPlanningConfig(
+		planning_frame=planning_frame,
+		planning_group=str(node.get_parameter('planning_group').value),
+		allowed_planning_time=float(node.get_parameter('allowed_planning_time').value),
+		num_planning_attempts=int(node.get_parameter('num_planning_attempts').value),
+		max_velocity_scaling=float(node.get_parameter('max_velocity_scaling').value),
+		max_acceleration_scaling=float(node.get_parameter('max_acceleration_scaling').value),
+		position_tolerance_m=float(node.get_parameter('position_tolerance_m').value),
+		orientation_tolerance_rad=float(node.get_parameter('orientation_tolerance_rad').value),
+		end_effector_link=str(node.get_parameter('end_effector_link').value),
+		joint_goal_tolerance_rad=float(node.get_parameter('joint_goal_tolerance_rad').value),
+		planning_pipeline_id=str(node.get_parameter('planning_pipeline_id').value),
+		planner_id=str(node.get_parameter('planner_id').value),
+	)
 
 
 def build_motion_plan_request(

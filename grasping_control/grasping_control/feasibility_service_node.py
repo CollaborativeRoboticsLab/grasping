@@ -15,6 +15,7 @@ from grasping_control.motion_utils import (
 	MotionPlanningConfig,
 	build_joint_move_group_goal,
 	build_move_group_goal,
+	planning_config_from_node,
 	robot_state_from_joint_state,
 )
 from grasping_control.workspace_utils import (
@@ -241,8 +242,8 @@ class FeasibilityServiceNode(Node):
 				planning_config,
 				None,
 				ik_payload['start_state'],
+				plan_only=True,
 			)
-			goal.planning_options.plan_only = True
 			plan_ok, plan_message = self._execute_move_group_goal(goal)
 			if plan_ok:
 				response.feasible = True
@@ -260,8 +261,8 @@ class FeasibilityServiceNode(Node):
 			planning_config,
 			None,
 			self._current_robot_state_or_none(),
+			plan_only=True,
 		)
-		goal.planning_options.plan_only = True
 		plan_ok, plan_message = self._execute_move_group_goal(goal)
 		if plan_ok:
 			response.feasible = True
@@ -314,8 +315,8 @@ class FeasibilityServiceNode(Node):
 			self._motion_planning_config(),
 			None,
 			self._current_robot_state_or_none(),
+			plan_only=True,
 		)
-		goal.planning_options.plan_only = True
 		plan_ok, plan_message = self._execute_move_group_goal(goal)
 		if plan_ok:
 			response.feasible = True
@@ -561,20 +562,7 @@ class FeasibilityServiceNode(Node):
 		return coerce_string_sequence(self.get_parameter('workspace_objects').value)
 
 	def _motion_planning_config(self) -> MotionPlanningConfig:
-		return MotionPlanningConfig(
-			planning_frame=self._planning_frame,
-			planning_group=str(self.get_parameter('planning_group').value),
-			allowed_planning_time=float(self.get_parameter('allowed_planning_time').value),
-			num_planning_attempts=int(self.get_parameter('num_planning_attempts').value),
-			max_velocity_scaling=float(self.get_parameter('max_velocity_scaling').value),
-			max_acceleration_scaling=float(self.get_parameter('max_acceleration_scaling').value),
-			position_tolerance_m=float(self.get_parameter('position_tolerance_m').value),
-			orientation_tolerance_rad=float(self.get_parameter('orientation_tolerance_rad').value),
-			end_effector_link=str(self.get_parameter('end_effector_link').value),
-			joint_goal_tolerance_rad=float(self.get_parameter('joint_goal_tolerance_rad').value),
-			planning_pipeline_id=str(self.get_parameter('planning_pipeline_id').value),
-			planner_id=str(self.get_parameter('planner_id').value),
-		)
+		return planning_config_from_node(self, self._planning_frame)
 
 	def _planning_joint_names(self) -> List[str]:
 		return coerce_string_sequence(self.get_parameter('planning_joint_names').value)

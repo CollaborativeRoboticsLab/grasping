@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import yaml
 
 from grasping_control.scene_manager_core import SceneReference, load_workspace_config_for_editing, scene_handle_from_reference

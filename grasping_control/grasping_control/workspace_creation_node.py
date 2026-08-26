@@ -17,7 +17,9 @@ from grasping_control.common import (
 	resolve_config_path,
 )
 from grasping_control.scene_manager_core import (
+	default_workspace_save_location,
 	load_workspace_config_for_editing,
+	normalize_workspace_save_path,
 	persist_workspace_document,
 )
 from grasping_control.workspace_utils import (
@@ -855,12 +857,10 @@ class WorkspaceCreationNode(Node):
 		if self._workspace_write_path is not None:
 			return self._workspace_write_path
 
-		default_save_path: Optional[Path] = None
-		save_root = self._workspace_config_path.parent
-		if self._workspace_config_path.name != 'workspace_empty.yaml':
-			default_save_path = self._workspace_config_path
-		elif self._workspace_root is not None:
-			save_root = self._workspace_root
+		save_root, default_save_path = default_workspace_save_location(
+			self._workspace_config_path,
+			self._workspace_root,
+		)
 
 		while rclpy.ok():
 			if default_save_path is not None:
@@ -880,11 +880,7 @@ class WorkspaceCreationNode(Node):
 				print('File name is required, or type cancel.')
 				continue
 
-			save_path = Path(response).expanduser()
-			if not save_path.is_absolute():
-				save_path = (save_root / save_path).resolve()
-			if save_path.suffix not in {'.yaml', '.yml'}:
-				save_path = save_path.with_suffix('.yaml')
+			save_path = normalize_workspace_save_path(response, save_root)
 
 			if save_path.exists() and save_path != default_save_path:
 				overwrite = input(f'{save_path.name} exists. Overwrite? [y/N]: ').strip().lower()

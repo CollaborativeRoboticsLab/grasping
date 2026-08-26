@@ -238,6 +238,42 @@ def persist_workspace_document(
 	return write_workspace_config(path, workspace_config, base_frame, tool_frame, ground_plane_z)
 
 
+def default_workspace_save_location(
+	workspace_config_path: Path,
+	workspace_root: Optional[Path],
+) -> tuple[Path, Optional[Path]]:
+	"""
+	@brief Derive the default save root and overwrite target for workspace editing flows.
+
+	@param workspace_config_path Current workspace document path used for editing.
+	@param workspace_root Optional detected colcon workspace root.
+	@return Tuple of save root and default overwrite target.
+	"""
+	default_save_path: Optional[Path] = None
+	save_root = workspace_config_path.parent
+	if workspace_config_path.name != 'workspace_empty.yaml':
+		default_save_path = workspace_config_path
+	elif workspace_root is not None:
+		save_root = workspace_root
+	return save_root, default_save_path
+
+
+def normalize_workspace_save_path(response: str, save_root: Path) -> Path:
+	"""
+	@brief Normalize a user-provided workspace save destination.
+
+	@param response Raw user input from the save prompt.
+	@param save_root Base directory for relative save paths.
+	@return Absolute destination path with a YAML suffix.
+	"""
+	save_path = Path(response).expanduser()
+	if not save_path.is_absolute():
+		save_path = (save_root / save_path).resolve()
+	if save_path.suffix not in {'.yaml', '.yml'}:
+		save_path = save_path.with_suffix('.yaml')
+	return save_path
+
+
 def scene_handle_from_reference(reference: SceneReference) -> str:
 	"""
 	@brief Build a deterministic runtime scene handle from a scene reference.
