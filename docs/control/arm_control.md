@@ -3,6 +3,17 @@
 This document covers motion execution in the `grasping_control` package.
 
 For calibration of the workspace file consumed by this node, see [creation.md](../workspace/creation.md).
+For runtime scene ownership, activation, and active-scene APIs, see [scene_manager.md](../workspace/scene_manager.md).
+
+## Runtime Split
+
+The grasping runtime is now split into three responsibilities:
+
+- `scene_manager_node` owns workspace document resolution, MoveIt planning-scene updates, allowed-collision updates, and publication of the singleton active scene
+- `motion_execution_node` owns arm execution actions and consumes active workspace-area state from the scene manager
+- `feasibility_service_node` owns arm-only feasibility checks and consumes the same active workspace-area state from the scene manager
+
+This means scene activation is explicit runtime state, separate from both feasibility queries and arm execution requests.
 
 ## Features
 
@@ -13,14 +24,35 @@ Its major features are:
 - Transforming the incoming pose into the configured planning frame
 - Validating that the target lies inside the calibrated workspace area, when configured
 - Seeding MoveIt's IK with the current arm joint state and preferring a nearby joint-space solution
-- Loading collision objects from workspace ROS parameters at startup
-- Applying those objects to MoveIt through `ApplyPlanningScene`
+- Querying `GetActiveScene` at startup and staying synchronized with `/active_scene`
 - Loading named motion poses from ROS parameters provided by `motion_config.yaml`
 - Publishing the calibrated workspace area as an RViz marker
 - Building MoveIt joint-goal or pose-goal constraints depending on the nearby-IK result
 - Submitting the final motion request to `moveit_msgs/action/MoveGroup`
 
-This keeps MoveIt, TF, and workspace handling centralized in one server.
+This keeps arm execution focused on motion while scene ownership stays centralized in `scene_manager_node`.
+
+## Grasping Interfaces
+
+The grasping control layer now exposes both execution actions and feasibility services.
+
+Execution actions:
+
+- `grasping_msgs/action/MoveToPose`
+- `grasping_msgs/action/MoveToNamedPose`
+- `grasping_msgs/action/MoveToJointPose`
+
+Scene-management services and actions:
+
+- `grasping_msgs/srv/GetActiveScene`
+- `grasping_msgs/srv/ValidateWorkspaceDocument`
+- `grasping_msgs/action/ActivateScene`
+- `grasping_msgs/action/LoadSceneFromContent`
+
+Arm-only feasibility services:
+
+- `grasping_msgs/srv/CheckCartesianPoseFeasibility`
+- `grasping_msgs/srv/CheckJointPoseFeasibility`
 
 ## Interfaces
 
@@ -29,6 +61,56 @@ This keeps MoveIt, TF, and workspace handling centralized in one server.
 - `grasping_msgs/action/MoveToPose` for arbitrary target poses
 - `grasping_msgs/action/MoveToNamedPose` for configured named poses
 - `grasping_msgs/action/MoveToJointPose` for explicit joint-space targets executed against the grasping-owned planning scene
+
+`feasibility_service_node` exposes two service interfaces:
+
+- `CheckCartesianPoseFeasibility`, with modes `arm_only_ik` and `arm_only_plan`
+- `CheckJointPoseFeasibility`, with modes `state_validity` and `plan`
+
+Both services return structured fields including `feasible`, `failure_reason`, `suggested_fallback`, `message`, and request-specific resolved outputs when available.
+
+## Feasibility vs Execution vs Scene Activation
+
+These three operations are intentionally separate:
+
+- scene activation changes the grasping-side planning scene and active workspace-area state
+- feasibility checks answer whether the current active scene admits an arm-only solution, but they do not execute motion or mutate the scene
+- execution actions plan and optionally execute against the current active scene, but they do not implicitly switch scenes
+
+That separation matters for higher-level planners. A task runner should activate the correct scene first, then call feasibility, then call execution only after it accepts the chosen plan or fallback.
+
+## IK Success Is Not Planning Success
+
+The grasping stack now exposes this distinction explicitly.
+
+- `arm_only_ik` means: can MoveIt produce a collision-aware IK solution for the target pose in the current scene?
+- `arm_only_plan` means: can MoveIt produce a planning-only motion request to that target in the current scene?
+- `state_validity` means: is a supplied joint state collision-free and kinematically valid in the current scene?
+- `plan` for joint feasibility means: can MoveIt produce a planning-only joint-space path to that joint state?
+
+An IK success does not guarantee planning success. The target may have a valid end state while still failing trajectory planning because of path collisions, constraints, joint limits along the path, or planner failure. That is why the mobile-manipulator layer first asks the grasping layer for a feasibility mode that matches the policy decision it needs.
+
+## Cartesian Feasibility Flow
+
+For each `CheckCartesianPoseFeasibility` request, the node performs the following sequence:
+
+1. Validate that `frame_id` is present.
+2. Transform the request pose into `planning_frame`.
+3. Reject the request with `failure_reason=workspace_area_violation` if the transformed pose lies outside the active workspace area.
+4. Run nearby IK seeded from the current planning-joint state.
+5. If mode is `arm_only_ik`, succeed only when IK succeeds.
+6. If mode is `arm_only_plan`, prefer a joint-goal plan from the IK result and fall back to pose-constrained planning when configured.
+7. When arm-only planning fails but a base move could help, return `suggested_fallback=move_base_then_arm`.
+
+## Joint Feasibility Flow
+
+For each `CheckJointPoseFeasibility` request, the node performs the following sequence:
+
+1. Validate that at least one joint name is supplied.
+2. Validate that `joint_names` and `joint_positions` have matching lengths.
+3. For `state_validity`, call MoveIt state validity against the current active planning scene.
+4. For `plan`, build a planning-only joint-goal request from the current state to the requested state.
+5. Return structured `failure_reason` values for invalid request shape, missing joints, collision, constraint violation, or planner failure.
 
 ## Grasp-Pose Flow
 
@@ -131,29 +213,15 @@ That file contains:
 
 ## Workspace Integration
 
-At startup, the node reads workspace configuration from ROS parameters. The robot launch files load the selected workspace YAML, such as `crlab_table.yaml`, as a ROS parameter file.
+`motion_execution_node` and `feasibility_service_node` no longer own workspace document parsing or planning-scene application as their primary runtime behavior.
 
-From the workspace configuration it reads:
+Instead they consume active-scene state from `scene_manager_node`:
 
-- `workspace_objects` and `workspace_object`, which are converted into MoveIt collision objects
-- optional `workspace_object.<name>.allowed_collision_links`, which allows configured object-link collision pairs in MoveIt's allowed collision matrix
-- `workspace_area`, which is used as an acceptance filter for incoming goals
-- `base_frame`, which is used as the workspace-area reference frame when needed
+- on startup, each node queries `GetActiveScene`
+- during runtime, each node subscribes to `/active_scene`
+- both nodes rebuild their local workspace-area filter cache from the published active scene metadata
 
-Workspace objects may allow collision with specific robot links when a fixed obstacle touches robot mounting hardware. For example:
-
-```yaml
-workspace_object:
-  table:
-    allowed_collision_links: [ur10_base_link]
-```
-
-This still keeps `table` as a collision object for every other robot link.
-
-Unsupported geometry types are skipped with a warning. Supported runtime collision geometry types are:
-
-- `box`
-- `cylinder`
+The planning scene itself is updated by `scene_manager_node` through `ActivateScene` or `LoadSceneFromContent`.
 
 ## Workspace-Area Filtering
 
@@ -250,12 +318,21 @@ The node sends the request to the configured `MoveGroup` action and reports any 
 On startup the node:
 
 1. reads configured named poses from ROS parameters loaded by the launch file
-2. reads workspace objects and optional workspace area from ROS parameters
-3. publishes the workspace marker state
-4. applies collision objects to the planning scene if `ApplyPlanningScene` is available, appending configured workspace object-link allowances to the existing MoveIt allowed-collision matrix
+2. queries `GetActiveScene` to initialize the local workspace-area cache when a scene is already active
+3. subscribes to `/active_scene` for later scene updates
+4. publishes the current workspace marker state
 5. starts the `MoveToPose`, `MoveToNamedPose`, and `MoveToJointPose` action servers
 
-If `ApplyPlanningScene` is unavailable, the node logs a warning and continues running without loading the planning scene.
+If no active scene exists yet, the node keeps running and waits for scene activation.
+
+## Typical Runtime Order
+
+The intended runtime order is:
+
+1. activate a scene with `ActivateScene` or indirectly through mobile-manipulator `ActivateSceneByName`
+2. wait for the grasping scene manager to publish the new active scene
+3. call `CheckCartesianPoseFeasibility` or `CheckJointPoseFeasibility` if the task needs an arm-only answer
+4. call `MoveToPose`, `MoveToNamedPose`, or `MoveToJointPose` only after the correct scene is active and the task policy accepts execution
 
 ## Failure Cases
 

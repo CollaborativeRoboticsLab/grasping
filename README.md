@@ -32,11 +32,19 @@ In this grasping framework, we have tested with the UR10, TM12s manipulators and
 - [Attaching new gripper and components](./docs/manipulator/adding_new_components.md)
 - [Moveit Servo and Keyboard Teleop](./docs/manipulator/teleop.md)
 
-### Manipulator Control and Workspace Creation
+### Manipulator Control, Feasibility, and Scene Management
 
-This component transforms grasp poses, applies workspace obstacles to MoveIt, visualizes the calibrated workspace area, and rejects poses outside that area.
+This component now separates three concerns:
+
+- scene activation and active planning-scene ownership in `scene_manager_node`
+- arm execution in `motion_execution_node`
+- arm-only feasibility in `feasibility_service_node`
+
+The grasping runtime transforms grasp poses, applies workspace obstacles through the scene manager, visualizes the active workspace area, rejects poses outside that area, and exposes explicit feasibility services distinct from execution actions.
 
 - [Workspace Creation](./docs/workspace/creation.md)
+- [Scene Manager](./docs/workspace/scene_manager.md)
+- [Workspace Loading](./docs/workspace/loading.md)
 - [Arm Control](./docs/control/arm_control.md)
 - [Control stack overview](./docs/control/control_stack_overview.md)
 - [Simple Grasping](./docs/control/simple_grasping.md)

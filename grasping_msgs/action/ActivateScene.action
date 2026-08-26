@@ -1,0 +1,12 @@
+# Grasping-side action that activates a specific workspace scene reference.
+
+grasping_msgs/SceneReference reference
+bool force_reload
+---
+bool success
+string failure_reason
+string message
+grasping_msgs/ActiveScene active_scene
+---
+string stage
+string message

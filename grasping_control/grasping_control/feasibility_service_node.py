@@ -6,6 +6,7 @@ from geometry_msgs.msg import PoseStamped
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
 
@@ -21,7 +22,9 @@ from grasping_control.workspace_utils import (
 	point_in_workspace_area,
 	workspace_config_from_node_parameters,
 )
+from grasping_msgs.msg import ActiveScene
 from grasping_msgs.srv import CheckCartesianPoseFeasibility, CheckJointPoseFeasibility
+from grasping_msgs.srv import GetActiveScene
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import MoveItErrorCodes, RobotState
 from moveit_msgs.srv import GetPositionIK, GetStateValidity
@@ -68,6 +71,8 @@ class FeasibilityServiceNode(Node):
 		self.declare_parameter('joint_state_timeout_sec', 0.5)
 		self.declare_parameter('ik_timeout_sec', 0.2)
 		self.declare_parameter('joint_goal_tolerance_rad', 0.001)
+		self.declare_parameter('active_scene_topic', '/active_scene')
+		self.declare_parameter('get_active_scene_service_name', 'get_active_scene')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._latest_joint_positions_by_name: Dict[str, float] = {}
@@ -75,10 +80,14 @@ class FeasibilityServiceNode(Node):
 		self._declare_workspace_parameters()
 		self._workspace_area: Optional[Dict[str, Any]] = None
 		self._workspace_area_frame = self._planning_frame
-		self._load_workspace_from_parameters()
 
 		self._tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=10.0))
 		self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+		active_scene_qos = QoSProfile(
+			history=HistoryPolicy.KEEP_LAST,
+			depth=1,
+			durability=DurabilityPolicy.TRANSIENT_LOCAL,
+		)
 		self._movegroup_client = ActionClient(
 			self,
 			MoveGroup,
@@ -92,11 +101,21 @@ class FeasibilityServiceNode(Node):
 			GetStateValidity,
 			str(self.get_parameter('check_state_validity_service').value),
 		)
+		self._get_active_scene_client = self.create_client(
+			GetActiveScene,
+			str(self.get_parameter('get_active_scene_service_name').value),
+		)
 		self._joint_state_subscription = self.create_subscription(
 			JointState,
 			str(self.get_parameter('joint_state_topic').value),
 			self._joint_state_callback,
 			10,
+		)
+		self._active_scene_subscription = self.create_subscription(
+			ActiveScene,
+			str(self.get_parameter('active_scene_topic').value),
+			self._active_scene_callback,
+			active_scene_qos,
 		)
 		self._cartesian_service = self.create_service(
 			CheckCartesianPoseFeasibility,
@@ -108,6 +127,62 @@ class FeasibilityServiceNode(Node):
 			str(self.get_parameter('joint_feasibility_service_name').value),
 			self._handle_joint_feasibility,
 		)
+
+		self._sync_workspace_area_from_scene_manager()
+
+	def _active_scene_callback(self, message: ActiveScene) -> None:
+		"""
+		@brief Update the workspace-area filter from the latest active-scene topic state.
+		"""
+		self._update_workspace_area_from_active_scene(message)
+
+	def _sync_workspace_area_from_scene_manager(self) -> None:
+		"""
+		@brief Bootstrap the workspace-area cache from the scene-manager service.
+		"""
+		if not self._get_active_scene_client.wait_for_service(timeout_sec=2.0):
+			self.get_logger().warn('GetActiveScene service not available during startup; waiting for /active_scene updates.')
+			return
+		future = self._get_active_scene_client.call_async(GetActiveScene.Request())
+		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+		if not future.done() or future.result() is None:
+			self.get_logger().warn('GetActiveScene request did not complete during startup; waiting for /active_scene updates.')
+			return
+		response = future.result()
+		if response.active:
+			self._update_workspace_area_from_active_scene(response.active_scene)
+		else:
+			self.get_logger().info('Scene manager reports no active scene yet; workspace-area filtering is idle.')
+
+	def _update_workspace_area_from_active_scene(self, active_scene: ActiveScene) -> None:
+		"""
+		@brief Rebuild workspace-area geometry from the scene-manager active-scene message.
+		"""
+		self._workspace_area_frame = str(active_scene.workspace_base_frame).strip() or self._planning_frame
+		if not bool(active_scene.workspace_area_enabled):
+			self._workspace_area = None
+			return
+
+		corner_points = []
+		for point in active_scene.workspace_area_corner_points:
+			corner_points.append(
+				{
+					'x': float(point.x),
+					'y': float(point.y),
+					'z': float(point.z),
+				}
+			)
+
+		if len(corner_points) != 4:
+			self.get_logger().warn('Ignoring active scene workspace area because it does not contain four corner points.')
+			self._workspace_area = None
+			return
+
+		self._workspace_area = {
+			'geometry': {
+				'corner_points': corner_points,
+			},
+		}
 
 	def _handle_cartesian_feasibility(
 		self,
@@ -433,12 +508,16 @@ class FeasibilityServiceNode(Node):
 		if self._workspace_area is None:
 			return True
 		geometry = self._workspace_area.get('geometry', {})
-		point_x = float(target_pose.pose.position.x)
-		point_y = float(target_pose.pose.position.y)
-		point_z = float(target_pose.pose.position.z)
 		if target_pose.header.frame_id != self._workspace_area_frame:
 			return False
-		return point_in_workspace_area(point_x, point_y, point_z, geometry)
+		return point_in_workspace_area(
+			geometry,
+			{
+				'x': float(target_pose.pose.position.x),
+				'y': float(target_pose.pose.position.y),
+				'z': float(target_pose.pose.position.z),
+			},
+		)
 
 	def _load_workspace_from_parameters(self) -> None:
 		workspace_config = workspace_config_from_node_parameters(

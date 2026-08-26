@@ -1,0 +1,16 @@
+# Grasping-side action that validates and activates a supplied workspace
+# document without requiring it to already exist on disk.
+
+string scene_name
+string package_name
+string workspace_file
+string workspace_document
+bool force_reload
+---
+bool success
+string failure_reason
+string message
+grasping_msgs/ActiveScene active_scene
+---
+string stage
+string message

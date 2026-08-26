@@ -16,15 +16,16 @@ from grasping_control.common import (
 	load_yaml_dict,
 	resolve_config_path,
 )
+from grasping_control.scene_manager_core import (
+	load_workspace_config_for_editing,
+	persist_workspace_document,
+)
 from grasping_control.workspace_utils import (
 	build_geometry,
 	build_workspace_area,
 	collision_objects_from_workspace,
 	default_shape_definitions,
-	default_workspace_config,
 	iso_timestamp,
-	workspace_config_from_document,
-	write_workspace_config,
 )
 
 
@@ -125,16 +126,12 @@ class WorkspaceCreationNode(Node):
 			# Shape requirements are defined separately from object instances so adding a new
 			# primitive later only requires extending the shape definition YAML.
 			shape_definitions = load_yaml_dict(self._shape_definitions_path, default_shape_definitions())
-			raw_workspace_config = load_yaml_dict(
+			workspace_config = load_workspace_config_for_editing(
 				self._workspace_config_path,
-				default_workspace_config(self._base_frame, self._tool_frame, self._ground_plane_z),
+				self._base_frame,
+				self._tool_frame,
+				self._ground_plane_z,
 			)
-			workspace_config = workspace_config_from_document(
-				raw_workspace_config,
-				default_workspace_config(self._base_frame, self._tool_frame, self._ground_plane_z),
-			)
-			workspace_config.setdefault('workspace_area', None)
-			workspace_config.setdefault('objects', [])
 			self._interactive_loop(workspace_config, shape_definitions)
 		except Exception as exc:
 			self.get_logger().error(f'Workspace creation session failed: {exc}')
@@ -839,7 +836,7 @@ class WorkspaceCreationNode(Node):
 		if save_path is None:
 			return None
 
-		saved_config = write_workspace_config(
+		saved_config = persist_workspace_document(
 			save_path,
 			workspace_config,
 			self._base_frame,

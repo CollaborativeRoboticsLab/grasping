@@ -1,0 +1,6 @@
+# Return the currently active grasping-side scene, if one has been loaded.
+
+---
+bool active
+grasping_msgs/ActiveScene active_scene
+string message

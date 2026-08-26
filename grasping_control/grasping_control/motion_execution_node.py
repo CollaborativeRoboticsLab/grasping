@@ -32,7 +32,9 @@ from grasping_control.workspace_utils import (
 	point_in_workspace_area,
 	workspace_config_from_node_parameters,
 )
+from grasping_msgs.msg import ActiveScene
 from grasping_msgs.action import MoveToJointPose, MoveToNamedPose, MoveToPose
+from grasping_msgs.srv import GetActiveScene
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
 	AllowedCollisionMatrix,
@@ -97,6 +99,8 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('joint_goal_tolerance_rad', 0.001)
 		self.declare_parameter('log_joint_goal_deltas', False)
 		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
+		self.declare_parameter('active_scene_topic', '/active_scene')
+		self.declare_parameter('get_active_scene_service_name', 'get_active_scene')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._latest_joint_state: Optional[JointState] = None
@@ -122,6 +126,12 @@ class MotionExecutionNode(Node):
 			str(self.get_parameter('workspace_area_marker_topic').value),
 			marker_qos,
 		)
+		self._active_scene_subscription = self.create_subscription(
+			ActiveScene,
+			str(self.get_parameter('active_scene_topic').value),
+			self._active_scene_callback,
+			marker_qos,
+		)
 
 		self._movegroup_client = ActionClient(
 			self,
@@ -139,6 +149,10 @@ class MotionExecutionNode(Node):
 		self._compute_ik_client = self.create_client(
 			GetPositionIK,
 			str(self.get_parameter('compute_ik_service').value),
+		)
+		self._get_active_scene_client = self.create_client(
+			GetActiveScene,
+			str(self.get_parameter('get_active_scene_service_name').value),
 		)
 		self._joint_state_subscription = self.create_subscription(
 			JointState,
@@ -176,9 +190,7 @@ class MotionExecutionNode(Node):
 			cancel_callback=self._cancel_callback,
 		)
 
-		# Load static workspace obstacles once at startup so every later arm action is planned
-		# against the calibrated scene written by workspace_creation_node.py.
-		self._load_workspace_into_planning_scene()
+		self._sync_workspace_area_from_scene_manager()
 
 		self.get_logger().info(
 			f"Motion execution action server ready on {self.get_parameter('action_name').value}"
@@ -193,6 +205,66 @@ class MotionExecutionNode(Node):
 			'Nearby IK preference is '
 			+ ('enabled' if self._get_bool_parameter('prefer_nearby_ik') else 'disabled')
 		)
+
+	def _active_scene_callback(self, message: ActiveScene) -> None:
+		"""
+		@brief Update the local workspace-area cache whenever the active scene changes.
+		"""
+		self._update_workspace_area_from_active_scene(message)
+
+	def _sync_workspace_area_from_scene_manager(self) -> None:
+		"""
+		@brief Bootstrap local workspace-area state from the scene-manager service.
+		"""
+		if not self._get_active_scene_client.wait_for_service(timeout_sec=2.0):
+			self.get_logger().warn('GetActiveScene service not available during startup; waiting for /active_scene updates.')
+			self._publish_workspace_area_marker()
+			return
+		future = self._get_active_scene_client.call_async(GetActiveScene.Request())
+		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+		if not future.done() or future.result() is None:
+			self.get_logger().warn('GetActiveScene request did not complete during startup; waiting for /active_scene updates.')
+			self._publish_workspace_area_marker()
+			return
+		response = future.result()
+		if response.active:
+			self._update_workspace_area_from_active_scene(response.active_scene)
+		else:
+			self.get_logger().info('Scene manager reports no active scene yet; workspace-area filtering is idle.')
+			self._publish_workspace_area_marker()
+
+	def _update_workspace_area_from_active_scene(self, active_scene: ActiveScene) -> None:
+		"""
+		@brief Rebuild the workspace-area geometry cache from an ActiveScene message.
+		"""
+		self._workspace_area_frame = str(active_scene.workspace_base_frame).strip() or self._planning_frame
+		if not bool(active_scene.workspace_area_enabled):
+			self._workspace_area = None
+			self._publish_workspace_area_marker()
+			return
+
+		corner_points = []
+		for point in active_scene.workspace_area_corner_points:
+			corner_points.append(
+				{
+					'x': float(point.x),
+					'y': float(point.y),
+					'z': float(point.z),
+				}
+			)
+
+		if len(corner_points) != 4:
+			self.get_logger().warn('Ignoring active scene workspace area because it does not contain four corner points.')
+			self._workspace_area = None
+			self._publish_workspace_area_marker()
+			return
+
+		self._workspace_area = {
+			'geometry': {
+				'corner_points': corner_points,
+			},
+		}
+		self._publish_workspace_area_marker()
 
 	def destroy_node(self) -> bool:
 		"""

@@ -1,0 +1,14 @@
+# Validate a workspace document without applying it to the active scene.
+
+string scene_name
+string package_name
+string workspace_file
+string workspace_document
+---
+bool valid
+string failure_reason
+string message
+grasping_msgs/SceneReference normalized_reference
+string workspace_base_frame
+bool workspace_area_enabled
+string[] object_names

@@ -1,0 +1,10 @@
+# Filter the mobile-manipulator scene registry.
+#
+# requested_mode is optional. required_tags is optional and must all match when
+# provided.
+
+string requested_mode
+string[] required_tags
+---
+grasping_msgs/SceneDescriptor[] scenes
+string message

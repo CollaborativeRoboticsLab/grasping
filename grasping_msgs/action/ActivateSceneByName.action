@@ -1,0 +1,16 @@
+# Mobile-manipulator-side action that resolves a scene by registry semantics,
+# then asks the grasping-side scene manager to activate it.
+
+string scene_name
+string requested_mode
+string[] required_tags
+bool force_reload
+---
+bool success
+string failure_reason
+string message
+grasping_msgs/SceneDescriptor selected_scene
+grasping_msgs/ActiveScene active_scene
+---
+string stage
+string message
