@@ -69,6 +69,40 @@ Arm-only feasibility services:
 
 Both services return structured fields including `feasible`, `failure_reason`, `suggested_fallback`, `message`, and request-specific resolved outputs when available.
 
+## CLI Examples
+
+Use these commands to query the grasping feasibility services directly from the ROS 2 CLI.
+
+Cartesian IK feasibility against the current active scene:
+
+```bash
+source install/setup.bash
+ros2 service call /check_cartesian_pose_feasibility grasping_msgs/srv/CheckCartesianPoseFeasibility "{mode: arm_only_ik, frame_id: world, pose: {position: {x: 0.40, y: 0.10, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+```
+
+Cartesian planning-only feasibility against the current active scene:
+
+```bash
+source install/setup.bash
+ros2 service call /check_cartesian_pose_feasibility grasping_msgs/srv/CheckCartesianPoseFeasibility "{mode: arm_only_plan, frame_id: world, pose: {position: {x: 0.40, y: 0.10, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}"
+```
+
+Joint-state validity against the current active scene:
+
+```bash
+source install/setup.bash
+ros2 service call /check_joint_pose_feasibility grasping_msgs/srv/CheckJointPoseFeasibility "{mode: state_validity, joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint], joint_positions: [0.0, -1.57, 1.57, -1.57, -1.57, 0.0]}"
+```
+
+Joint planning-only feasibility against the current active scene:
+
+```bash
+source install/setup.bash
+ros2 service call /check_joint_pose_feasibility grasping_msgs/srv/CheckJointPoseFeasibility "{mode: plan, joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint], joint_positions: [0.0, -1.57, 1.57, -1.57, -1.57, 0.0]}"
+```
+
+For higher-level orchestration, treat `arm_only_ik` as an end-state reachability question and `arm_only_plan` as a path-existence question. Use joint modes when the upstream planner already owns the target joint configuration.
+
 ## Feasibility vs Execution vs Scene Activation
 
 These three operations are intentionally separate:

@@ -3,6 +3,7 @@
 The grasping runtime now distinguishes between workspace calibration files and the currently active runtime scene.
 
 - `workspace_creation_node.py` creates or edits workspace YAML files
+- `scene_manager_core.py` owns the shared workspace-document loading, normalization, and persistence helpers used by calibration and runtime scene activation
 - `scene_manager_node.py` resolves and activates one workspace file as the current runtime scene
 - `motion_execution_node.py` and `feasibility_service_node.py` consume the active scene rather than owning workspace parsing themselves
 
@@ -23,6 +24,8 @@ For mobile manipulation, the expected flow is:
 1. mobile-manipulator `scene_registry_node` resolves a scene name from `scenes.yaml`
 2. grasping `scene_manager_node` activates the referenced workspace file
 3. arm execution and feasibility nodes observe the updated `/active_scene` state
+
+This means the workspace YAML on disk is not the live runtime source of truth after startup. The live source of truth is the scene currently held by `scene_manager_node` and published through `GetActiveScene` plus `/active_scene`.
 
 Following are some examples,
 

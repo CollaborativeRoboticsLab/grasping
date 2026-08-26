@@ -5,7 +5,7 @@
 The first runtime version is now implemented.
 
 - `scene_manager_node.py` owns active-scene loading, validation, publication, and MoveIt scene application
-- `scene_manager_core.py` owns shared workspace-document loading and normalization helpers
+- `scene_manager_core.py` owns shared workspace-document loading, normalization, persistence, and workspace save-path helpers
 - `motion_execution_node.py` and `feasibility_service_node.py` now bootstrap from `GetActiveScene` and stay synced from `/active_scene`
 - launch wiring in `grasping_control/launch/motion_execution.launch.py` now starts `scene_manager_node` and can activate a default scene at startup
 
@@ -55,7 +55,7 @@ Default launch parameters used by the current bringup:
 The `workspace_creation_node` is the calibration and editing frontend. And,
 
 - keep the interactive CLI capture loop
-- reuse the shared scene-management core for document normalization and persistence
+- reuse the shared scene-management core for document loading, normalization, persistence, and save-path handling
 - avoid merging operator-interactive calibration behavior into the scene-manager runtime API
 
 ## Active Scene Rules
@@ -70,5 +70,4 @@ For the current single-robot scope:
 
 ## Current Gaps
 
-- `workspace_creation_node.py` still needs a follow-up pass to consume more of the shared scene-management core
 - end-to-end runtime validation is still needed against live MoveIt, registry activation, and full Omron bringup
