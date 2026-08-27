@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import threading
 from typing import Any, Dict, List, Optional
 
 from geometry_msgs.msg import PoseStamped
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from rclpy.time import Time
@@ -84,6 +87,7 @@ class FeasibilityServiceNode(Node):
 
 		self._tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=10.0))
 		self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+		self._runtime_callback_group = ReentrantCallbackGroup()
 		active_scene_qos = QoSProfile(
 			history=HistoryPolicy.KEEP_LAST,
 			depth=1,
@@ -93,40 +97,48 @@ class FeasibilityServiceNode(Node):
 			self,
 			MoveGroup,
 			str(self.get_parameter('move_group_action_name').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._compute_ik_client = self.create_client(
 			GetPositionIK,
 			str(self.get_parameter('compute_ik_service').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._state_validity_client = self.create_client(
 			GetStateValidity,
 			str(self.get_parameter('check_state_validity_service').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._get_active_scene_client = self.create_client(
 			GetActiveScene,
 			str(self.get_parameter('get_active_scene_service_name').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._joint_state_subscription = self.create_subscription(
 			JointState,
 			str(self.get_parameter('joint_state_topic').value),
 			self._joint_state_callback,
 			10,
+			callback_group=self._runtime_callback_group,
 		)
 		self._active_scene_subscription = self.create_subscription(
 			ActiveScene,
 			str(self.get_parameter('active_scene_topic').value),
 			self._active_scene_callback,
 			active_scene_qos,
+			callback_group=self._runtime_callback_group,
 		)
 		self._cartesian_service = self.create_service(
 			CheckCartesianPoseFeasibility,
 			str(self.get_parameter('cartesian_feasibility_service_name').value),
 			self._handle_cartesian_feasibility,
+			callback_group=self._runtime_callback_group,
 		)
 		self._joint_service = self.create_service(
 			CheckJointPoseFeasibility,
 			str(self.get_parameter('joint_feasibility_service_name').value),
 			self._handle_joint_feasibility,
+			callback_group=self._runtime_callback_group,
 		)
 
 		self._sync_workspace_area_from_scene_manager()
@@ -370,8 +382,7 @@ class FeasibilityServiceNode(Node):
 		request.group_name = str(self.get_parameter('planning_group').value)
 
 		future = self._state_validity_client.call_async(request)
-		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=5.0) or future.result() is None:
 			return False, 'State validity request did not complete before the client timeout.', []
 
 		result = future.result()
@@ -392,8 +403,7 @@ class FeasibilityServiceNode(Node):
 			return False, f"MoveGroup action server '{action_name}' not available."
 
 		send_future = self._movegroup_client.send_goal_async(goal)
-		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
-		if not send_future.done() or send_future.result() is None:
+		if not self._wait_for_future(send_future, timeout_sec=10.0) or send_future.result() is None:
 			return False, 'Failed to send MoveGroup goal.'
 
 		goal_handle = send_future.result()
@@ -401,8 +411,7 @@ class FeasibilityServiceNode(Node):
 			return False, 'MoveGroup goal was rejected.'
 
 		result_future = goal_handle.get_result_async()
-		rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
-		if not result_future.done() or result_future.result() is None:
+		if not self._wait_for_future(result_future, timeout_sec=60.0) or result_future.result() is None:
 			return False, 'MoveGroup result not received.'
 
 		result = result_future.result().result
@@ -488,8 +497,7 @@ class FeasibilityServiceNode(Node):
 		).to_msg()
 
 		future = self._compute_ik_client.call_async(request)
-		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=5.0) or future.result() is None:
 			return None, 'Nearby IK request did not complete before the client timeout.'
 
 		response = future.result()
@@ -504,6 +512,20 @@ class FeasibilityServiceNode(Node):
 		if missing_joint_names:
 			return None
 		return self._joint_state_from_positions(planning_joint_names, positions_by_name)
+
+	@staticmethod
+	def _wait_for_future(future: Any, timeout_sec: float) -> bool:
+		if future.done():
+			return True
+
+		done_event = threading.Event()
+
+		def _mark_done(_: Any) -> None:
+			done_event.set()
+
+		future.add_done_callback(_mark_done)
+		done_event.wait(timeout_sec)
+		return future.done()
 
 	def _target_pose_in_workspace_area(self, target_pose: PoseStamped) -> bool:
 		if self._workspace_area is None:
@@ -622,9 +644,13 @@ class FeasibilityServiceNode(Node):
 def main(args: Optional[List[str]] = None) -> None:
 	rclpy.init(args=args)
 	node = FeasibilityServiceNode()
+	executor = MultiThreadedExecutor(num_threads=2)
+	executor.add_node(node)
 	try:
-		rclpy.spin(node)
+		executor.spin()
 	finally:
+		executor.remove_node(node)
+		executor.shutdown()
 		node.destroy_node()
 		rclpy.shutdown()
 
