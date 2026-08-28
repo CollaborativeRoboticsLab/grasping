@@ -1,0 +1,4 @@
+# Return the configured manipulator named poses and their descriptions.
+
+---
+grasping_msgs/NamedPoseDescriptor[] named_poses

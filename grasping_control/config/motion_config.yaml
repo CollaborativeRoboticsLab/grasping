@@ -30,9 +30,12 @@ motion_execution_node:
       workspace_center:
         pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
         target_frame: camera_link
+        description: Centered camera-aligned observation pose over the workspace.
       pre_grasp:
         pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
         target_frame: tcp
+        description: Pre-approach pose used before descending toward a grasp target.
       post_grasp:
         pose: [0.0, 0.0, 0.30, 0.0, 0.0, 0.0]
         target_frame: tcp
+        description: Retreat pose used after completing a grasp or placement motion.

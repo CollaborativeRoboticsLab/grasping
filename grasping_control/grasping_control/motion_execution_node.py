@@ -33,9 +33,9 @@ from grasping_control.workspace_utils import (
 	point_in_workspace_area,
 	workspace_config_from_node_parameters,
 )
-from grasping_msgs.msg import ActiveScene
+from grasping_msgs.msg import ActiveScene, NamedPoseDescriptor
 from grasping_msgs.action import MoveToJointPose, MoveToNamedPose, MoveToPose
-from grasping_msgs.srv import GetActiveScene
+from grasping_msgs.srv import GetActiveScene, ListNamedPoses
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
 	AllowedCollisionMatrix,
@@ -102,6 +102,7 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('workspace_area_marker_topic', '/workspace_area_marker')
 		self.declare_parameter('active_scene_topic', '/active_scene')
 		self.declare_parameter('get_active_scene_service_name', 'get_active_scene')
+		self.declare_parameter('list_named_poses_service_name', 'list_named_poses')
 
 		self._planning_frame = str(self.get_parameter('planning_frame').value)
 		self._latest_joint_state: Optional[JointState] = None
@@ -161,6 +162,11 @@ class MotionExecutionNode(Node):
 			self._joint_state_callback,
 			10,
 		)
+		self._list_named_poses_service = self.create_service(
+			ListNamedPoses,
+			str(self.get_parameter('list_named_poses_service_name').value),
+			self._handle_list_named_poses,
+		)
 		self._planning_joint_state_publisher = self.create_publisher(
 			JointState,
 			str(self.get_parameter('planning_joint_state_topic').value),
@@ -203,6 +209,9 @@ class MotionExecutionNode(Node):
 			f"Joint-pose action server ready on {self.get_parameter('joint_pose_action_name').value}"
 		)
 		self.get_logger().info(
+			f"Named-pose listing service ready on {self.get_parameter('list_named_poses_service_name').value}"
+		)
+		self.get_logger().info(
 			'Nearby IK preference is '
 			+ ('enabled' if self._get_bool_parameter('prefer_nearby_ik') else 'disabled')
 		)
@@ -212,6 +221,21 @@ class MotionExecutionNode(Node):
 		@brief Update the local workspace-area cache whenever the active scene changes.
 		"""
 		self._update_workspace_area_from_active_scene(message)
+
+	def _handle_list_named_poses(
+		self,
+		_request: ListNamedPoses.Request,
+		response: ListNamedPoses.Response,
+	) -> ListNamedPoses.Response:
+		"""
+		@brief Return configured named poses with semantic descriptions.
+
+		@param _request Empty request.
+		@param response Service response to populate.
+		@return Response containing configured pose descriptors.
+		"""
+		response.named_poses = self._configured_named_pose_descriptors()
+		return response
 
 	def _sync_workspace_area_from_scene_manager(self) -> None:
 		"""
@@ -511,6 +535,8 @@ class MotionExecutionNode(Node):
 					self.declare_parameter(f'{parameter_key}.pose', [0.0, 0.0, 0.30, 0.0, 0.0, 0.0])
 				if not self.has_parameter(f'{parameter_key}.target_frame'):
 					self.declare_parameter(f'{parameter_key}.target_frame', '')
+				if not self.has_parameter(f'{parameter_key}.description'):
+					self.declare_parameter(f'{parameter_key}.description', '')
 
 		if pose_names:
 			self.get_logger().info('Configured motion pose parameters: ' + ', '.join(pose_names))
@@ -735,6 +761,23 @@ class MotionExecutionNode(Node):
 		@return True when the pose name is allowed and has pose values.
 		"""
 		return pose_name in self._configured_pose_names()
+
+	def _configured_named_pose_descriptors(self) -> List[NamedPoseDescriptor]:
+		"""
+		@brief Build descriptor messages for every configured named pose.
+
+		@return Ordered list of pose descriptors.
+		"""
+		descriptors: List[NamedPoseDescriptor] = []
+		for pose_name in self._configured_pose_names():
+			parameter_key = self._configured_pose_parameter_key(pose_name)
+			descriptor = NamedPoseDescriptor()
+			descriptor.pose_name = pose_name
+			descriptor.description = str(
+				self.get_parameter(f'{parameter_key}.description').value
+			).strip()
+			descriptors.append(descriptor)
+		return descriptors
 
 	def _configured_pose_parameter_keys(self, pose_name: str) -> List[str]:
 		"""

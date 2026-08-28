@@ -4,7 +4,7 @@ import unittest
 from geometry_msgs.msg import Pose
 from grasping_msgs.action import LoadSceneFromContent
 from grasping_msgs.msg import ActiveScene
-from grasping_msgs.srv import CheckCartesianPoseFeasibility, GetActiveScene
+from grasping_msgs.srv import CheckCartesianPoseFeasibility, GetActiveScene, ListNamedPoses
 import launch
 import launch_ros.actions
 import launch_testing.actions
@@ -169,3 +169,19 @@ class TestSceneActivationLaunch(unittest.TestCase):
         assert feasibility_response.feasible is False
         assert feasibility_response.failure_reason == 'workspace_area_violation'
         assert feasibility_response.suggested_fallback == 'move_base_then_arm'
+
+    def test_list_named_poses_service_returns_default_catalog(self):
+        list_named_poses_client = self.node.create_client(ListNamedPoses, 'list_named_poses')
+        assert list_named_poses_client.wait_for_service(timeout_sec=5.0)
+
+        future = list_named_poses_client.call_async(ListNamedPoses.Request())
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+        response = future.result()
+
+        assert response is not None
+        assert [descriptor.pose_name for descriptor in response.named_poses] == [
+            'workspace_center',
+            'pre_grasp',
+            'post_grasp',
+        ]
+        assert [descriptor.description for descriptor in response.named_poses] == ['', '', '']

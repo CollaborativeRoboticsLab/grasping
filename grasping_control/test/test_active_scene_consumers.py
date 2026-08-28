@@ -3,6 +3,7 @@ from geometry_msgs.msg import Point, PoseStamped
 from grasping_control.feasibility_service_node import FeasibilityServiceNode
 from grasping_control.motion_execution_node import MotionExecutionNode
 from grasping_msgs.msg import ActiveScene
+from grasping_msgs.srv import ListNamedPoses
 
 
 class _Logger:
@@ -64,3 +65,31 @@ def test_feasibility_updates_workspace_area_from_active_scene_and_filters_pose()
 
     assert node._target_pose_in_workspace_area(inside_pose) is True
     assert node._target_pose_in_workspace_area(outside_pose) is False
+
+
+class _Parameter:
+    def __init__(self, value):
+        self.value = value
+
+
+def test_motion_execution_lists_named_pose_descriptions():
+    values = {
+        'poses_names': ['workspace_center', 'pre_grasp'],
+        'poses_values.workspace_center.target_frame': 'camera_link',
+        'poses_values.workspace_center.pose': [0.0, 0.0, 0.30, 0.0, 0.0, 0.0],
+        'poses_values.workspace_center.description': 'Observation pose over the workspace.',
+        'poses_values.pre_grasp.target_frame': 'tcp',
+        'poses_values.pre_grasp.pose': [0.0, 0.0, 0.30, 0.0, 0.0, 0.0],
+        'poses_values.pre_grasp.description': 'Approach pose before grasping.',
+    }
+
+    node = MotionExecutionNode.__new__(MotionExecutionNode)
+    node.get_parameter = lambda name: _Parameter(values.get(name, ''))
+
+    response = node._handle_list_named_poses(ListNamedPoses.Request(), ListNamedPoses.Response())
+
+    assert [descriptor.pose_name for descriptor in response.named_poses] == ['workspace_center', 'pre_grasp']
+    assert [descriptor.description for descriptor in response.named_poses] == [
+        'Observation pose over the workspace.',
+        'Approach pose before grasping.',
+    ]

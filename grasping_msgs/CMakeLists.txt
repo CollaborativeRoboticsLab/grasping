@@ -15,6 +15,7 @@ set(message_files
   "msg/SceneReference.msg"
   "msg/SceneDescriptor.msg"
   "msg/ActiveScene.msg"
+  "msg/NamedPoseDescriptor.msg"
 )
 
 set(action_files
@@ -30,6 +31,7 @@ set(service_files
   "srv/CheckCartesianPoseFeasibility.srv"
   "srv/CheckJointPoseFeasibility.srv"
   "srv/GetActiveScene.srv"
+  "srv/ListNamedPoses.srv"
   "srv/ListAvailableScenes.srv"
   "srv/ValidateWorkspaceDocument.srv"
 )
