@@ -422,7 +422,19 @@ class SceneManagerNode(Node):
 		if not isinstance(workspace_area, dict):
 			return []
 		geometry = workspace_area.get('geometry', {})
-		corner_points = geometry.get('corner_points', {})
+		corner_points = geometry.get('corner_points', [])
+		if isinstance(corner_points, list):
+			return [
+				{
+					'x': float(point.get('x', 0.0)),
+					'y': float(point.get('y', 0.0)),
+					'z': float(point.get('z', 0.0)),
+				}
+				for point in corner_points
+				if isinstance(point, dict)
+			]
+		if not isinstance(corner_points, dict):
+			return []
 		x_values = corner_points.get('x', [])
 		y_values = corner_points.get('y', [])
 		z_values = corner_points.get('z', [])
