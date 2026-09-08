@@ -33,7 +33,7 @@ source install/setup.bash
 ros2 run grasping_teleop servo_teleop_node
 ```
 
-The node automatically calls `/servo_node/start_servo` on startup.
+The node automatically switches Servo to `TWIST` command mode and then unpauses Servo on startup.
 
 ## Key Bindings
 
@@ -52,8 +52,8 @@ Angular motion in the `tool_tip` frame:
 Servo control:
 
 - `space`: stop motion
-- `v`: start Servo
-- `b`: stop Servo
+- `v`: start or unpause Servo
+- `b`: stop or pause Servo
 - `h`: print help
 - `x`: stop Servo and quit teleop
 
@@ -66,14 +66,15 @@ This teleop is hold-to-move, not latch-to-move.
 - press `space` for an immediate stop
 
 The teleop publishes `geometry_msgs/msg/TwistStamped` messages to `/servo_node/delta_twist_cmds`.
+On ROS Jazzy, it also calls `/servo_node/switch_command_type` with `TWIST` so Servo accepts those commands.
 
 ## Parameters
 
 Useful runtime parameters:
 
 - `topic`: Servo twist input topic. Default `/servo_node/delta_twist_cmds`
-- `start_service`: Servo start service. Default `/servo_node/start_servo`
-- `stop_service`: Servo stop service. Default `/servo_node/stop_servo`
+- `command_type_service`: Servo command type service. Default `/servo_node/switch_command_type`
+- `pause_service`: Servo pause service. Default `/servo_node/pause_servo`
 - `frame_id`: command frame. Default `tool_tip`
 - `linear_speed`: linear jogging speed in m/s. Default `0.50`
 - `angular_speed`: angular jogging speed in rad/s. Default `0.75`
@@ -107,7 +108,7 @@ If the arm does not move:
 
 1. Make sure the robot was launched with `launch_servo:=true`.
 2. Make sure the teleop terminal sourced `install/setup.bash`.
-3. Press `v` to explicitly start Servo again.
+3. Press `v` to explicitly start or unpause Servo again.
 4. Confirm the robot is not stopped by safety, protective stop, or program state on the UR side.
 
 If RViz execution fails while Servo mode is active, that is expected. Servo mode activates `forward_position_controller`, while RViz plan execution normally targets the trajectory controller.

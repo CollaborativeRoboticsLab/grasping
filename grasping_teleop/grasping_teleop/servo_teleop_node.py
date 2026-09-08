@@ -7,8 +7,9 @@ import tty
 
 import rclpy
 from geometry_msgs.msg import TwistStamped
+from moveit_msgs.srv import ServoCommandType
 from rclpy.node import Node
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool
 
 
 HELP_TEXT = """
@@ -37,8 +38,9 @@ class ServoTeleop(Node):
 	def __init__(self) -> None:
 		super().__init__("servo_teleop_node")
 		self.declare_parameter("topic", "/servo_node/delta_twist_cmds")
-		self.declare_parameter("start_service", "/servo_node/start_servo")
-		self.declare_parameter("stop_service", "/servo_node/stop_servo")
+		self.declare_parameter("command_type_service", "/servo_node/switch_command_type")
+		self.declare_parameter("pause_service", "/servo_node/pause_servo")
+		self.declare_parameter("command_type_wait_sec", 5.0)
 		self.declare_parameter("frame_id", "tool_tip")
 		self.declare_parameter("enable_smoothing", True)
 		self.declare_parameter("smoothing_alpha", 0.25)
@@ -49,8 +51,13 @@ class ServoTeleop(Node):
 		self.declare_parameter("help_repeat_lines", 10)
 
 		topic = self.get_parameter("topic").get_parameter_value().string_value
-		start_service = self.get_parameter("start_service").get_parameter_value().string_value
-		stop_service = self.get_parameter("stop_service").get_parameter_value().string_value
+		command_type_service = (
+			self.get_parameter("command_type_service").get_parameter_value().string_value
+		)
+		pause_service = self.get_parameter("pause_service").get_parameter_value().string_value
+		self._command_type_wait_sec = (
+			self.get_parameter("command_type_wait_sec").get_parameter_value().double_value
+		)
 		self._frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
 		self._enable_smoothing = (
 			self.get_parameter("enable_smoothing").get_parameter_value().bool_value
@@ -77,8 +84,8 @@ class ServoTeleop(Node):
 
 		self._publisher = self.create_publisher(TwistStamped, topic, 10)
 		self._command_lock = threading.Lock()
-		self._start_client = self.create_client(Trigger, start_service)
-		self._stop_client = self.create_client(Trigger, stop_service)
+		self._command_type_client = self.create_client(ServoCommandType, command_type_service)
+		self._pause_client = self.create_client(SetBool, pause_service)
 		self._target_linear = [0.0, 0.0, 0.0]
 		self._target_angular = [0.0, 0.0, 0.0]
 		self._current_linear = [0.0, 0.0, 0.0]
@@ -87,16 +94,37 @@ class ServoTeleop(Node):
 		self._sent_stop = True
 		self._quit_requested = False
 		self._printed_command_lines = 0
+		self._command_type_ready = False
+		self._last_command_type_attempt = 0.0
+		self._command_type_future = None
+		self._pause_future = None
+		self._startup_pause_requested = False
+		self._pending_pause_state = False
+		self._pending_pause_label = "pause_servo"
 
 		period = 1.0 / publish_rate_hz if publish_rate_hz > 0.0 else 1.0 / 30.0
 		self.create_timer(period, self._publish_command)
+		self._startup_timer = self.create_timer(0.5, self._startup_handshake)
 		self.get_logger().info(f"Publishing Servo commands to {topic} in frame {self._frame_id}")
 		self.get_logger().info("Hold a key to move. Motion stops shortly after key release.")
 		self.get_logger().info(
 			f"Command smoothing: {'enabled' if self._enable_smoothing else 'disabled'}"
 		)
-		self.get_logger().info(f"Servo services: start={start_service}, stop={stop_service}")
-		self._call_trigger(self._start_client, "start_servo")
+		self.get_logger().info(
+			"Servo services: "
+			f"command_type={command_type_service}, pause={pause_service}"
+		)
+
+	def _startup_handshake(self) -> None:
+		if not self._command_type_ready:
+			self._ensure_twist_command_mode(timeout_sec=0.0)
+			return
+		if not self._startup_pause_requested:
+			if self._request_pause_state(False, "startup"):
+				self._startup_pause_requested = True
+			return
+		if self._pause_future is None:
+			self._startup_timer.cancel()
 
 	def request_quit(self) -> None:
 		self._quit_requested = True
@@ -138,11 +166,12 @@ class ServoTeleop(Node):
 			self._print_command("command: stop")
 			return
 		elif key == "v":
-			self._call_trigger(self._start_client, "start_servo")
+			self._ensure_twist_command_mode(force=True, timeout_sec=self._command_type_wait_sec)
+			self._start_servo()
 			return
 		elif key == "b":
 			self._stop_motion()
-			self._call_trigger(self._stop_client, "stop_servo")
+			self._stop_servo()
 			return
 		elif key == "h":
 			print(f"\n{HELP_TEXT}\n")
@@ -150,10 +179,14 @@ class ServoTeleop(Node):
 			return
 		elif key == "x":
 			self._stop_motion()
-			self._call_trigger(self._stop_client, "stop_servo")
+			self._stop_servo()
 			self.request_quit()
 			return
 		else:
+			return
+
+		if not self._ensure_twist_command_mode():
+			self._print_command("command: waiting for servo command type")
 			return
 
 		with self._command_lock:
@@ -181,6 +214,11 @@ class ServoTeleop(Node):
 			self._sent_stop = False
 
 	def _publish_command(self) -> None:
+		if self._command_type_future is not None and self._command_type_future.done():
+			self._handle_command_type_response()
+		if self._pause_future is not None and self._pause_future.done():
+			self._handle_pause_response(self._pending_pause_state, self._pending_pause_label)
+
 		now = time.monotonic()
 		with self._command_lock:
 			if now <= self._command_deadline:
@@ -214,6 +252,39 @@ class ServoTeleop(Node):
 		msg.twist.angular.z = angular[2]
 		self._publisher.publish(msg)
 
+	def _ensure_twist_command_mode(self, force: bool = False, timeout_sec: float = 1.0) -> bool:
+		if self._command_type_ready and not force:
+			return True
+		if self._command_type_future is not None:
+			if self._command_type_future.done():
+				self._handle_command_type_response()
+			return self._command_type_ready
+
+		now = time.monotonic()
+		if not force and now - self._last_command_type_attempt < 0.5:
+			return False
+		self._last_command_type_attempt = now
+
+		if not self._command_type_client.wait_for_service(timeout_sec=max(timeout_sec, 0.0)):
+			self.get_logger().warning("switch_command_type service not available")
+			return False
+
+		if force:
+			self.get_logger().info("switch_command_type service discovered")
+
+		request = ServoCommandType.Request()
+		request.command_type = ServoCommandType.Request.TWIST
+		self._command_type_future = self._command_type_client.call_async(request)
+		return False
+
+	def _start_servo(self) -> None:
+		if not self._command_type_ready:
+			return
+		self._request_pause_state(False, "pause_servo")
+
+	def _stop_servo(self) -> None:
+		self._request_pause_state(True, "pause_servo")
+
 	def _blend_command(self, current: list[float], target: list[float]) -> list[float]:
 		alpha = min(max(self._smoothing_alpha, 0.0), 1.0)
 		blended = []
@@ -224,21 +295,55 @@ class ServoTeleop(Node):
 			blended.append(next_value)
 		return blended
 
-	def _call_trigger(self, client: Trigger, label: str) -> None:
-		if not client.wait_for_service(timeout_sec=1.0):
-			self.get_logger().warning(f"{label} service not available")
-			return
+	def _handle_command_type_response(self) -> bool:
+		if self._command_type_future is None or not self._command_type_future.done():
+			return False
 
-		future = client.call_async(Trigger.Request())
-		rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-		if not future.done() or future.result() is None:
-			self.get_logger().warning(f"{label} call did not complete")
-			return
-
+		future = self._command_type_future
+		self._command_type_future = None
 		response = future.result()
+		if response is None:
+			self.get_logger().warning("switch_command_type call did not complete")
+			return False
+
+		level = self.get_logger().info if response.success else self.get_logger().warning
+		level("switch_command_type: TWIST" if response.success else "switch_command_type failed")
+		self._command_type_ready = response.success
+		return response.success
+
+	def _request_pause_state(self, data: bool, label: str) -> bool:
+		if self._pause_future is not None:
+			if self._pause_future.done():
+				self._handle_pause_response(data, label)
+			return False
+
+		if not self._pause_client.wait_for_service(timeout_sec=1.0):
+			self.get_logger().warning(f"{label} service not available")
+			return False
+
+		request = SetBool.Request()
+		request.data = data
+		self._pending_pause_state = data
+		self._pending_pause_label = label
+		self._pause_future = self._pause_client.call_async(request)
+		return True
+
+	def _handle_pause_response(self, data: bool, label: str) -> bool:
+		if self._pause_future is None or not self._pause_future.done():
+			return False
+
+		future = self._pause_future
+		self._pause_future = None
+		response = future.result()
+		if response is None:
+			self.get_logger().warning(f"{label} call did not complete")
+			return False
+
+		state = "pause" if data else "unpause"
 		level = self.get_logger().info if response.success else self.get_logger().warning
 		message = response.message if response.message else "ok"
-		level(f"{label}: {message}")
+		level(f"{label} {state}: {message}")
+		return response.success
 
 
 def _read_key(timeout: float = 0.1) -> str | None:

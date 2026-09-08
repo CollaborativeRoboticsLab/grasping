@@ -11,6 +11,8 @@ source install/setup.bash
 ros2 run grasping_teleop servo_teleop_node
 ```
 
+The node automatically switches MoveIt Servo into `TWIST` command mode and unpauses Servo before sending jog commands.
+
 ## Read Current Pose Or Joints
 
 Read the current transform:
