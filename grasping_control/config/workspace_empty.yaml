@@ -1,5 +1,3 @@
-
-
 motion_execution_node:
   ros__parameters:
     workspace:
