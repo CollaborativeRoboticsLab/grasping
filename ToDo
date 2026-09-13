@@ -4,3 +4,7 @@
 - [ ] Implement a small scene_registry_node that loads that YAML and serves ListAvailableScenes / ActivateSceneByName-style flows.
 - [ ] Keep scene_manager as the runtime owner of the single active scene; registry resolves choices, scene_manager activates them.
 - [ ] Wire the registry into robot or mobile-manipulator launch files once a consumer stack is ready.
+
+## Improve unreachable pose handling.
+
+- [ ] Make relaxed pose search adaptive instead of the current fixed-axis sweep, so failure recovery can rank nearby XYZ/RPY candidates by scene clearance and recent IK success.

@@ -47,7 +47,7 @@ class FeasibilityServiceNode(Node):
 		self.declare_parameter('joint_feasibility_service_name', 'check_joint_pose_feasibility')
 		self.declare_parameter('move_group_action_name', 'move_action')
 		self.declare_parameter('planning_group', 'manipulator')
-		self.declare_parameter('planning_frame', 'base_link')
+		self.declare_parameter('planning_frame', 'world')
 		self.declare_parameter('planning_pipeline_id', '')
 		self.declare_parameter('planner_id', '')
 		self.declare_parameter('allowed_planning_time', 5.0)
@@ -208,13 +208,14 @@ class FeasibilityServiceNode(Node):
 		if mode not in {'arm_only_ik', 'arm_only_plan'}:
 			return self._fail_cartesian(response, 'unsupported_mode', '', f"Unsupported Cartesian feasibility mode '{mode}'.")
 
-		frame_id = str(request.frame_id).strip()
-		if not frame_id:
-			return self._fail_cartesian(response, 'invalid_request', '', 'Cartesian feasibility request must include frame_id.')
+		planning_frame = str(request.planning_frame).strip() or self._planning_frame
+		target_frame = str(request.target_frame).strip() or str(self.get_parameter('end_effector_link').value)
+		if not planning_frame:
+			return self._fail_cartesian(response, 'invalid_request', '', 'Cartesian feasibility request must include planning_frame or rely on configured motion_config.')
 
 		target_pose = PoseStamped()
 		target_pose.header.stamp = self.get_clock().now().to_msg()
-		target_pose.header.frame_id = frame_id
+		target_pose.header.frame_id = planning_frame
 		target_pose.pose = request.pose
 
 		try:
@@ -233,7 +234,7 @@ class FeasibilityServiceNode(Node):
 				'Target pose lies outside the calibrated workspace area.',
 			)
 
-		ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose)
+		ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose, target_frame)
 		if ik_ok:
 			response.joint_state_solution = ik_payload['joint_state']
 			response.joint_state_solution_valid = True
@@ -252,7 +253,7 @@ class FeasibilityServiceNode(Node):
 			goal = build_joint_move_group_goal(
 				ik_payload['joint_state'],
 				planning_config,
-				None,
+				target_frame,
 				ik_payload['start_state'],
 				plan_only=True,
 			)
@@ -271,7 +272,7 @@ class FeasibilityServiceNode(Node):
 		goal = build_move_group_goal(
 			target_pose,
 			planning_config,
-			None,
+			target_frame,
 			self._current_robot_state_or_none(),
 			plan_only=True,
 		)
@@ -419,13 +420,13 @@ class FeasibilityServiceNode(Node):
 			return False, 'MoveGroup failed with ' + self._describe_moveit_error_code(result.error_code.val)
 		return True, 'MoveGroup planning feasibility succeeded.'
 
-	def _joint_goal_from_nearby_ik(self, target_pose: PoseStamped) -> tuple[bool, Dict[str, Any], str]:
+	def _joint_goal_from_nearby_ik(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> tuple[bool, Dict[str, Any], str]:
 		current_joint_state, state_message = self._current_planning_joint_state()
 		if current_joint_state is None:
 			return False, {}, 'Nearby IK unavailable: ' + state_message
 
 		start_state = robot_state_from_joint_state(current_joint_state)
-		ik_solution, ik_message = self._compute_nearby_ik_solution(target_pose, start_state)
+		ik_solution, ik_message = self._compute_nearby_ik_solution(target_pose, start_state, target_frame)
 		if ik_solution is None:
 			return False, {}, ik_message
 
@@ -481,6 +482,7 @@ class FeasibilityServiceNode(Node):
 		self,
 		target_pose: PoseStamped,
 		start_state: RobotState,
+		target_frame: Optional[str] = None,
 	) -> tuple[Optional[RobotState], str]:
 		service_name = str(self.get_parameter('compute_ik_service').value)
 		if not self._compute_ik_client.wait_for_service(timeout_sec=2.0):
@@ -490,7 +492,7 @@ class FeasibilityServiceNode(Node):
 		request.ik_request.group_name = str(self.get_parameter('planning_group').value)
 		request.ik_request.robot_state = start_state
 		request.ik_request.avoid_collisions = True
-		request.ik_request.ik_link_name = str(self.get_parameter('end_effector_link').value)
+		request.ik_request.ik_link_name = str(target_frame or self.get_parameter('end_effector_link').value)
 		request.ik_request.pose_stamped = target_pose
 		request.ik_request.timeout = rclpy.duration.Duration(
 			seconds=float(self.get_parameter('ik_timeout_sec').value)

@@ -66,7 +66,7 @@ Motion behavior is configured through `motion_config.yaml`:
 | --- | --- | --- |
 | `move_group_action_name` | `move_action` | Name of the MoveIt `MoveGroup` action server contacted by `motion_execution_node`. |
 | `planning_group` | `manipulator` | MoveIt planning group used when building the motion request. |
-| `planning_frame` | `base_link` | Target frame into which incoming poses are transformed before planning. |
+| `planning_frame` | `world` | Target frame into which incoming poses are transformed before planning. |
 | `end_effector_link` | `tcp` for soft-gripper launches | Link constrained to the requested pose in the generated goal constraints. |
 | `allowed_planning_time` | `5.0` | Maximum planning time in seconds for each MoveIt request. |
 | `num_planning_attempts` | `5` | Number of planning attempts MoveIt may use before reporting failure. |

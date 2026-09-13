@@ -5,7 +5,7 @@ motion_execution_node:
     joint_pose_action_name: move_arm_to_joint_pose
     move_group_action_name: move_action
     planning_group: manipulator
-    planning_frame: base_link
+    planning_frame: world
     end_effector_link: tcp
     allowed_planning_time: 5.0
     num_planning_attempts: 5
@@ -21,6 +21,8 @@ motion_execution_node:
     planning_joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
     prefer_nearby_ik: true
     fallback_to_pose_planning_on_ik_failure: true
+    pose_relax_search_enabled: true
+    pose_relax_limits: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     joint_state_timeout_sec: 0.5
     ik_timeout_sec: 0.2
     joint_goal_tolerance_rad: 0.001

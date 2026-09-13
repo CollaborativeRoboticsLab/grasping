@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import threading
 from typing import Any, Dict, List, Optional
 
 from geometry_msgs.msg import Point, PoseStamped
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.time import Time
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
@@ -16,6 +19,7 @@ from grasping_control.common import (
 	coerce_string_sequence,
 	nearest_equivalent_angle,
 	quaternion_from_rpy,
+	quaternion_to_rpy,
 	transform_pose_to_frame,
 )
 from grasping_control.motion_utils import (
@@ -63,7 +67,7 @@ class MotionExecutionNode(Node):
 		self.declare_parameter('action_name', 'move_arm_to_pose')
 		self.declare_parameter('move_group_action_name', 'move_action')
 		self.declare_parameter('planning_group', 'manipulator')
-		self.declare_parameter('planning_frame', 'base_link')
+		self.declare_parameter('planning_frame', 'world')
 		self.declare_parameter('planning_pipeline_id', '')
 		self.declare_parameter('planner_id', '')
 		self.declare_parameter('allowed_planning_time', 5.0)
@@ -95,6 +99,8 @@ class MotionExecutionNode(Node):
 		)
 		self.declare_parameter('prefer_nearby_ik', True)
 		self.declare_parameter('fallback_to_pose_planning_on_ik_failure', True)
+		self.declare_parameter('pose_relax_search_enabled', True)
+		self.declare_parameter('pose_relax_limits', [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 		self.declare_parameter('joint_state_timeout_sec', 0.5)
 		self.declare_parameter('ik_timeout_sec', 0.2)
 		self.declare_parameter('joint_goal_tolerance_rad', 0.001)
@@ -118,6 +124,7 @@ class MotionExecutionNode(Node):
 		# the planning frame before MoveIt constraints are constructed.
 		self._tf_buffer = tf2_ros.Buffer(cache_time=rclpy.duration.Duration(seconds=10.0))
 		self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+		self._runtime_callback_group = ReentrantCallbackGroup()
 		marker_qos = QoSProfile(
 			history=HistoryPolicy.KEEP_LAST,
 			depth=1,
@@ -133,39 +140,47 @@ class MotionExecutionNode(Node):
 			str(self.get_parameter('active_scene_topic').value),
 			self._active_scene_callback,
 			marker_qos,
+			callback_group=self._runtime_callback_group,
 		)
 
 		self._movegroup_client = ActionClient(
 			self,
 			MoveGroup,
 			str(self.get_parameter('move_group_action_name').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._planning_scene_client = self.create_client(
 			ApplyPlanningScene,
 			str(self.get_parameter('apply_planning_scene_service').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._get_planning_scene_client = self.create_client(
 			GetPlanningScene,
 			str(self.get_parameter('get_planning_scene_service').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._compute_ik_client = self.create_client(
 			GetPositionIK,
 			str(self.get_parameter('compute_ik_service').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._get_active_scene_client = self.create_client(
 			GetActiveScene,
 			str(self.get_parameter('get_active_scene_service_name').value),
+			callback_group=self._runtime_callback_group,
 		)
 		self._joint_state_subscription = self.create_subscription(
 			JointState,
 			str(self.get_parameter('joint_state_topic').value),
 			self._joint_state_callback,
 			10,
+			callback_group=self._runtime_callback_group,
 		)
 		self._list_named_poses_service = self.create_service(
 			ListNamedPoses,
 			str(self.get_parameter('list_named_poses_service_name').value),
 			self._handle_list_named_poses,
+			callback_group=self._runtime_callback_group,
 		)
 		self._planning_joint_state_publisher = self.create_publisher(
 			JointState,
@@ -246,8 +261,7 @@ class MotionExecutionNode(Node):
 			self._publish_workspace_area_marker()
 			return
 		future = self._get_active_scene_client.call_async(GetActiveScene.Request())
-		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=5.0) or future.result() is None:
 			self.get_logger().warn('GetActiveScene request did not complete during startup; waiting for /active_scene updates.')
 			self._publish_workspace_area_marker()
 			return
@@ -390,7 +404,13 @@ class MotionExecutionNode(Node):
 		@return Action result describing the outcome.
 		"""
 		feedback = MoveToPose.Feedback()
-		target_pose = goal_handle.request.target_pose
+		request = goal_handle.request
+		planning_frame = str(request.planning_frame).strip() or self._planning_frame
+		target_frame = str(request.target_frame).strip() or str(self.get_parameter('end_effector_link').value)
+		target_pose = PoseStamped()
+		target_pose.header.stamp = self.get_clock().now().to_msg()
+		target_pose.header.frame_id = planning_frame
+		target_pose.pose = request.pose
 
 		try:
 			# Clients can send poses in any connected frame. The server normalizes that first,
@@ -398,7 +418,7 @@ class MotionExecutionNode(Node):
 			feedback.state = 'transforming_target_pose'
 			goal_handle.publish_feedback(feedback)
 			if not str(target_pose.header.frame_id).strip():
-				raise RuntimeError('Grasp pose target_pose.header.frame_id must be set.')
+				raise RuntimeError('Grasp pose planning_frame must be set or configured in motion_config.')
 			target_pose = transform_pose_to_frame(
 				self,
 				self._tf_buffer,
@@ -419,7 +439,7 @@ class MotionExecutionNode(Node):
 
 			feedback.state = 'planning_and_executing'
 			goal_handle.publish_feedback(feedback)
-			ok, message = self._move_to_pose(target_pose)
+			ok, message = self._move_to_pose(target_pose, target_frame)
 
 		except Exception as exc:  # noqa: BLE001
 			ok = False
@@ -448,7 +468,7 @@ class MotionExecutionNode(Node):
 		try:
 			feedback.state = 'loading_named_pose'
 			goal_handle.publish_feedback(feedback)
-			target_pose, target_frame = self._get_named_pose_target(pose_name)
+			target_pose, target_frame, relax_limits = self._get_named_pose_target(pose_name)
 
 			feedback.state = 'transforming_target_pose'
 			goal_handle.publish_feedback(feedback)
@@ -461,7 +481,7 @@ class MotionExecutionNode(Node):
 
 			feedback.state = 'planning_and_executing'
 			goal_handle.publish_feedback(feedback)
-			ok, message = self._move_to_pose(target_pose, target_frame)
+			ok, message = self._move_to_pose(target_pose, target_frame, relax_limits)
 
 		except Exception as exc:  # noqa: BLE001
 			ok = False
@@ -535,6 +555,8 @@ class MotionExecutionNode(Node):
 					self.declare_parameter(f'{parameter_key}.pose', [0.0, 0.0, 0.30, 0.0, 0.0, 0.0])
 				if not self.has_parameter(f'{parameter_key}.target_frame'):
 					self.declare_parameter(f'{parameter_key}.target_frame', '')
+				if not self.has_parameter(f'{parameter_key}.relax_limits'):
+					self.declare_parameter(f'{parameter_key}.relax_limits', [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 				if not self.has_parameter(f'{parameter_key}.description'):
 					self.declare_parameter(f'{parameter_key}.description', '')
 
@@ -631,8 +653,7 @@ class MotionExecutionNode(Node):
 
 		future = self._planning_scene_client.call_async(request)
 
-		rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=10.0) or future.result() is None:
 			self.get_logger().warn('ApplyPlanningScene request did not complete.')
 			return
 
@@ -721,8 +742,7 @@ class MotionExecutionNode(Node):
 		request.components.components = PlanningSceneComponents.ALLOWED_COLLISION_MATRIX
 
 		future = self._get_planning_scene_client.call_async(request)
-		rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=10.0) or future.result() is None:
 			return None
 		return future.result().scene.allowed_collision_matrix
 
@@ -824,12 +844,12 @@ class MotionExecutionNode(Node):
 				return parameter_key
 		return self._configured_pose_parameter_keys(pose_name)[0]
 
-	def _get_named_pose_target(self, pose_name: str) -> tuple[PoseStamped, str]:
+	def _get_named_pose_target(self, pose_name: str) -> tuple[PoseStamped, str, List[float]]:
 		"""
 		@brief Return a configured named pose and the frame that should reach it.
 
 		@param pose_name Name from motion_config.yaml.
-		@return PoseStamped in the workspace area frame or planning frame, plus target frame.
+		@return PoseStamped in the planning frame, plus target frame and relax limits.
 		"""
 		if not self._configured_pose_exists(pose_name):
 			raise RuntimeError(
@@ -845,8 +865,13 @@ class MotionExecutionNode(Node):
 		target_frame = str(self.get_parameter(f'{parameter_key}.target_frame').value).strip()
 		if not target_frame:
 			target_frame = str(self.get_parameter('end_effector_link').value)
+		relax_limits = coerce_float_sequence(
+			self.get_parameter(f'{parameter_key}.relax_limits').value,
+			6,
+			f'{parameter_key}.relax_limits',
+		)
 
-		return self._pose_stamped_from_values(self._planning_frame, pose_values), target_frame
+		return self._pose_stamped_from_values(self._planning_frame, pose_values), target_frame, relax_limits
 
 	def _pose_stamped_from_values(self, frame: str, pose_values: List[float]) -> PoseStamped:
 		"""
@@ -868,6 +893,18 @@ class MotionExecutionNode(Node):
 		pose_stamped.pose.orientation.z = orientation.z
 		pose_stamped.pose.orientation.w = orientation.w
 		return pose_stamped
+
+	def _default_pose_relax_limits(self) -> List[float]:
+		"""
+		@brief Return the default per-axis pose relax limits.
+
+		@return [x, y, z, roll, pitch, yaw] search limits.
+		"""
+		return coerce_float_sequence(
+			self.get_parameter('pose_relax_limits').value,
+			6,
+			'pose_relax_limits',
+		)
 
 	def _get_bool_parameter(self, name: str) -> bool:
 		"""
@@ -956,12 +993,18 @@ class MotionExecutionNode(Node):
 
 		self._workspace_area_marker_publisher.publish(marker)
 
-	def _move_to_pose(self, target_pose: PoseStamped, target_frame: Optional[str] = None) -> tuple[bool, str]:
+	def _move_to_pose(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str] = None,
+		relax_limits: Optional[List[float]] = None,
+	) -> tuple[bool, str]:
 		"""
 		@brief Send a MoveGroup action goal for the requested target pose.
 
 		@param target_pose Goal pose already expressed in the planning frame.
 		@param target_frame Robot frame/link that should reach the target pose.
+		@param relax_limits Optional [x, y, z, roll, pitch, yaw] search limits.
 		@return Tuple of success flag and status message.
 		"""
 		action_name = str(self.get_parameter('move_group_action_name').value)
@@ -971,6 +1014,39 @@ class MotionExecutionNode(Node):
 		# The custom action stays thin and delegates actual motion execution to MoveIt so the
 		# rest of the system can talk to one stable arm-control interface.
 		planning_config = self._motion_planning_config()
+		ok, message = self._try_pose_goal(target_pose, target_frame, planning_config)
+		if ok:
+			return ok, message
+
+		effective_relax_limits = list(relax_limits) if relax_limits is not None else self._default_pose_relax_limits()
+		if not self._get_bool_parameter('pose_relax_search_enabled') or not any(limit > 0.0 for limit in effective_relax_limits):
+			return ok, message
+
+		relaxed_ok, relaxed_message = self._search_relaxed_pose_candidates(
+			target_pose,
+			target_frame,
+			planning_config,
+			effective_relax_limits,
+		)
+		if relaxed_ok:
+			return True, relaxed_message
+		return False, message + ' Relaxed pose search exhausted within configured relax limits.'
+
+	def _try_pose_goal(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+	) -> tuple[bool, str]:
+		"""
+		@brief Try one exact pose goal via nearby IK then pose-constrained planning.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param planning_config Planning settings snapshot.
+		@return Tuple of success flag and status message.
+		"""
+		fallback_context: Optional[str] = None
 
 		goal: MoveGroup.Goal
 		if self._get_bool_parameter('prefer_nearby_ik'):
@@ -985,6 +1061,7 @@ class MotionExecutionNode(Node):
 			else:
 				if not self._get_bool_parameter('fallback_to_pose_planning_on_ik_failure'):
 					return False, ik_message
+				fallback_context = ik_message
 				self.get_logger().warn(
 					ik_message + ' Falling back to pose-constrained planning request.'
 				)
@@ -1002,7 +1079,88 @@ class MotionExecutionNode(Node):
 				self._current_robot_state_or_none(),
 			)
 
-		return self._execute_move_group_goal(goal)
+		ok, message = self._execute_move_group_goal(goal)
+		if not ok and fallback_context is not None:
+			return False, fallback_context + ' Fallback pose-constrained planning also failed: ' + message
+		return ok, message
+
+	def _search_relaxed_pose_candidates(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+		relax_limits: List[float],
+	) -> tuple[bool, str]:
+		"""
+		@brief Try nearby pose variants within configured XYZ/RPY relax limits.
+
+		@param target_pose Original exact pose expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param planning_config Planning settings snapshot.
+		@param relax_limits [x, y, z, roll, pitch, yaw] search limits.
+		@return Tuple of success flag and message.
+		"""
+		last_message = 'No relaxed pose candidate succeeded.'
+		for candidate_pose, summary in self._iter_relaxed_pose_candidates(target_pose, relax_limits):
+			if not self._target_pose_in_workspace_area(candidate_pose):
+				continue
+			ok, message = self._try_pose_goal(candidate_pose, target_frame, planning_config)
+			if ok:
+				return True, message + f' using relaxed pose offsets ({summary}).'
+			last_message = message
+		return False, last_message
+
+	def _iter_relaxed_pose_candidates(
+		self,
+		target_pose: PoseStamped,
+		relax_limits: List[float],
+	) -> List[tuple[PoseStamped, str]]:
+		"""
+		@brief Generate deterministic nearby XYZ/RPY pose candidates.
+
+		@param target_pose Original exact pose in the planning frame.
+		@param relax_limits [x, y, z, roll, pitch, yaw] search limits.
+		@return Ordered candidate poses plus a short offset summary.
+		"""
+		roll, pitch, yaw = quaternion_to_rpy(
+			target_pose.pose.orientation.x,
+			target_pose.pose.orientation.y,
+			target_pose.pose.orientation.z,
+			target_pose.pose.orientation.w,
+		)
+		base_values = [
+			float(target_pose.pose.position.x),
+			float(target_pose.pose.position.y),
+			float(target_pose.pose.position.z),
+			roll,
+			pitch,
+			yaw,
+		]
+		axis_names = ('x', 'y', 'z', 'roll', 'pitch', 'yaw')
+		axis_order = (2, 0, 1, 3, 4, 5)
+		seen: set[tuple[float, ...]] = set()
+		candidates: List[tuple[PoseStamped, str]] = []
+
+		for fraction in (0.5, 1.0):
+			for axis in axis_order:
+				limit = abs(float(relax_limits[axis]))
+				if limit <= 0.0:
+					continue
+				step = limit * fraction
+				for direction in (1.0, -1.0):
+					candidate_values = list(base_values)
+					candidate_values[axis] += direction * step
+					key = tuple(round(value, 6) for value in candidate_values)
+					if key in seen:
+						continue
+					seen.add(key)
+					candidates.append(
+						(
+							self._pose_stamped_from_values(target_pose.header.frame_id, candidate_values),
+							f'{axis_names[axis]}={direction * step:+.3f}',
+						)
+					)
+		return candidates
 
 	def _move_to_joint_state(
 		self,
@@ -1036,8 +1194,7 @@ class MotionExecutionNode(Node):
 		@return Tuple of success flag and status message.
 		"""
 		send_future = self._movegroup_client.send_goal_async(goal)
-		rclpy.spin_until_future_complete(self, send_future, timeout_sec=10.0)
-		if not send_future.done() or send_future.result() is None:
+		if not self._wait_for_future(send_future, timeout_sec=10.0) or send_future.result() is None:
 			return False, 'Failed to send MoveGroup goal.'
 
 		goal_handle = send_future.result()
@@ -1045,8 +1202,7 @@ class MotionExecutionNode(Node):
 			return False, 'MoveGroup goal was rejected.'
 
 		result_future = goal_handle.get_result_async()
-		rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
-		if not result_future.done() or result_future.result() is None:
+		if not self._wait_for_future(result_future, timeout_sec=60.0) or result_future.result() is None:
 			return False, 'MoveGroup result not received.'
 
 		result = result_future.result().result
@@ -1174,8 +1330,7 @@ class MotionExecutionNode(Node):
 		).to_msg()
 
 		future = self._compute_ik_client.call_async(request)
-		rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-		if not future.done() or future.result() is None:
+		if not self._wait_for_future(future, timeout_sec=5.0) or future.result() is None:
 			return None, 'Nearby IK request did not complete before the client timeout.'
 
 		response = future.result()
@@ -1187,6 +1342,20 @@ class MotionExecutionNode(Node):
 				+ f" for group '{request.ik_request.group_name}' and link '{request.ik_request.ik_link_name}'.",
 			)
 		return response.solution, 'ok'
+
+	@staticmethod
+	def _wait_for_future(future: Any, timeout_sec: float) -> bool:
+		if future.done():
+			return True
+
+		done_event = threading.Event()
+
+		def _mark_done(_: Any) -> None:
+			done_event.set()
+
+		future.add_done_callback(_mark_done)
+		done_event.wait(timeout_sec)
+		return future.done()
 
 	def _planning_joint_state_from_robot_state(self, robot_state: RobotState) -> Optional[JointState]:
 		"""
@@ -1319,8 +1488,12 @@ def main(args: Optional[List[str]] = None) -> None:
 	"""
 	rclpy.init(args=args)
 	node = MotionExecutionNode()
+	executor = MultiThreadedExecutor(num_threads=2)
+	executor.add_node(node)
 	try:
-		rclpy.spin(node)
+		executor.spin()
 	finally:
+		executor.remove_node(node)
+		executor.shutdown()
 		node.destroy_node()
 		rclpy.shutdown()

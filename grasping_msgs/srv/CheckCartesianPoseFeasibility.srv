@@ -1,5 +1,6 @@
 geometry_msgs/Pose pose
-string frame_id
+string planning_frame
+string target_frame
 string mode
 ---
 bool feasible
