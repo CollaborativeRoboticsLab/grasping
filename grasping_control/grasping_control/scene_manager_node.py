@@ -27,6 +27,22 @@ from grasping_control.scene_manager_core import (
 )
 
 
+def should_retry_default_scene_activation(exc: Exception) -> bool:
+	"""
+	@brief Return whether a startup activation failure should be retried.
+
+	Transient MoveIt service startup races should not leave the runtime without an
+	active scene for the rest of the process lifetime.
+	"""
+	if not isinstance(exc, SceneManagerError):
+		return False
+	return exc.failure_reason in {
+		'planning_scene_unavailable',
+		'planning_scene_apply_timeout',
+		'allowed_collision_matrix_unavailable',
+	}
+
+
 class SceneManagerNode(Node):
 	"""
 	@brief Runtime node that owns the active grasping scene.
@@ -38,6 +54,7 @@ class SceneManagerNode(Node):
 
 	def __init__(self) -> None:
 		super().__init__('scene_manager_node')
+		self._default_scene_retry_timer = None
 
 		self.declare_parameter('get_active_scene_service_name', 'get_active_scene')
 		self.declare_parameter('validate_workspace_document_service_name', 'validate_workspace_document')
@@ -340,9 +357,11 @@ class SceneManagerNode(Node):
 		@brief Optionally activate a configured default scene during node startup.
 		"""
 		if not bool(self.get_parameter('startup_activate_default_scene').value):
+			self._cancel_default_scene_retry_timer()
 			return
 		workspace_file = str(self.get_parameter('default_workspace_file').value).strip()
 		if not workspace_file:
+			self._cancel_default_scene_retry_timer()
 			self.get_logger().warn('startup_activate_default_scene is true but default_workspace_file is empty.')
 			return
 		try:
@@ -358,9 +377,34 @@ class SceneManagerNode(Node):
 				self._ground_plane_z(),
 			)
 			self._apply_scene_activation(activation)
+			self._cancel_default_scene_retry_timer()
 			self.get_logger().info('Activated default scene during startup: ' + activation.scene_handle)
 		except Exception as exc:  # noqa: BLE001
+			if should_retry_default_scene_activation(exc):
+				self._ensure_default_scene_retry_timer()
+				self.get_logger().warn(
+					'Failed to activate default scene during startup; will retry: ' + str(exc)
+				)
+				return
+			self._cancel_default_scene_retry_timer()
 			self.get_logger().error('Failed to activate default scene during startup: ' + str(exc))
+
+	def _ensure_default_scene_retry_timer(self) -> None:
+		"""
+		@brief Create the startup retry timer once.
+		"""
+		if self._default_scene_retry_timer is None:
+			self._default_scene_retry_timer = self.create_timer(1.0, self._maybe_activate_default_scene)
+
+	def _cancel_default_scene_retry_timer(self) -> None:
+		"""
+		@brief Stop retrying startup activation once no longer needed.
+		"""
+		if self._default_scene_retry_timer is None:
+			return
+		self._default_scene_retry_timer.cancel()
+		self.destroy_timer(self._default_scene_retry_timer)
+		self._default_scene_retry_timer = None
 
 	def _scene_reference_from_message(self, reference: SceneReferenceMsg) -> SceneReference:
 		"""

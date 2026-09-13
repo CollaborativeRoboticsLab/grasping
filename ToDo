@@ -1,0 +1,6 @@
+## Add a scene registry/workspace manager layer above scene_manager.
+
+- [ ] Define a scenes/workspaces YAML that maps logical scene names to SceneReference values (package_name + workspace_file) plus metadata such as station_frame, semantic_tags, allowed_modes, and description.
+- [ ] Implement a small scene_registry_node that loads that YAML and serves ListAvailableScenes / ActivateSceneByName-style flows.
+- [ ] Keep scene_manager as the runtime owner of the single active scene; registry resolves choices, scene_manager activates them.
+- [ ] Wire the registry into robot or mobile-manipulator launch files once a consumer stack is ready.
