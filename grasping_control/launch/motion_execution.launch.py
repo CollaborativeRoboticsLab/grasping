@@ -1,11 +1,24 @@
 from pathlib import Path
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+
+def _load_node_parameters(config_path: str, node_name: str) -> dict:
+	with open(config_path, 'r', encoding='utf-8') as stream:
+		config = yaml.safe_load(stream) or {}
+
+	node_config = config.get(node_name, {})
+	parameters = node_config.get('ros__parameters', {}) if isinstance(node_config, dict) else {}
+	if isinstance(parameters, dict):
+		return dict(parameters)
+	return {}
 
 
 def _motion_execution_node(context, package_share: str):
@@ -16,6 +29,9 @@ def _motion_execution_node(context, package_share: str):
 		if motion_config_path.is_absolute()
 		else str(Path(package_share) / 'config' / motion_config_path)
 	)
+	shared_motion_parameters = _load_node_parameters(motion_config, 'motion_execution_node')
+	feasibility_motion_parameters = dict(shared_motion_parameters)
+	feasibility_motion_parameters.update(_load_node_parameters(motion_config, 'feasibility_service_node'))
 	return [
 		Node(
 			package='grasping_control',
@@ -56,7 +72,7 @@ def _motion_execution_node(context, package_share: str):
 			name='feasibility_service_node',
 			output='screen',
 			parameters=[
-				motion_config,
+				feasibility_motion_parameters,
 				{
 					'active_scene_topic': LaunchConfiguration('active_scene_topic'),
 					'get_active_scene_service_name': LaunchConfiguration('get_active_scene_service_name'),

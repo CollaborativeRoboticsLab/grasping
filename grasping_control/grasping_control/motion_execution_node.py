@@ -1490,29 +1490,135 @@ class MotionExecutionNode(Node):
 		if not self._compute_ik_client.wait_for_service(timeout_sec=2.0):
 			return None, f"GetPositionIK service '{service_name}' is not available."
 
+		request = self._build_ik_request(target_pose, target_frame, start_state, avoid_collisions=True)
+		response, error_message = self._call_ik_request(request)
+		if response is None:
+			return None, error_message
+
+		if response.error_code.val != MoveItErrorCodes.SUCCESS:
+			return (
+				None,
+				self._format_nearby_ik_failure_message(request, response.error_code.val, target_pose, start_state),
+			)
+		return response.solution, 'ok'
+
+	def _build_ik_request(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		start_state: RobotState,
+		*,
+		avoid_collisions: bool,
+	) -> GetPositionIK.Request:
+		"""
+		@brief Construct an IK request for the configured planning group and target link.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param start_state Current robot state used to seed IK.
+		@param avoid_collisions Whether MoveIt should reject colliding IK solutions.
+		@return Fully populated GetPositionIK request.
+		"""
 		request = GetPositionIK.Request()
 		request.ik_request.group_name = str(self.get_parameter('planning_group').value)
 		request.ik_request.robot_state = start_state
-		request.ik_request.avoid_collisions = True
+		request.ik_request.avoid_collisions = bool(avoid_collisions)
 		request.ik_request.ik_link_name = str(target_frame or self.get_parameter('end_effector_link').value)
 		request.ik_request.pose_stamped = target_pose
 		request.ik_request.timeout = rclpy.duration.Duration(
 			seconds=float(self.get_parameter('ik_timeout_sec').value)
 		).to_msg()
+		return request
 
+	def _call_ik_request(
+		self,
+		request: GetPositionIK.Request,
+	) -> tuple[Optional[GetPositionIK.Response], str]:
+		"""
+		@brief Execute one IK request and return either the response or a timeout message.
+
+		@param request Prepared IK request.
+		@return Tuple of response-or-None and status text.
+		"""
 		future = self._compute_ik_client.call_async(request)
 		if not self._wait_for_future(future, timeout_sec=5.0) or future.result() is None:
 			return None, 'Nearby IK request did not complete before the client timeout.'
+		return future.result(), 'ok'
 
-		response = future.result()
-		if response.error_code.val != MoveItErrorCodes.SUCCESS:
-			return (
-				None,
-				'Nearby IK failed with '
-				+ self._describe_moveit_error_code(response.error_code.val)
-				+ f" for group '{request.ik_request.group_name}' and link '{request.ik_request.ik_link_name}'.",
-			)
-		return response.solution, 'ok'
+	def _format_nearby_ik_failure_message(
+		self,
+		request: GetPositionIK.Request,
+		error_code: int,
+		target_pose: PoseStamped,
+		start_state: RobotState,
+	) -> str:
+		"""
+		@brief Add a cheap secondary IK probe to distinguish collision filtering from geometric failure.
+
+		@param request Original collision-aware IK request.
+		@param error_code MoveIt error code returned by the original request.
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param start_state Current robot state used to seed IK.
+		@return Diagnostic failure message for logs and action results.
+		"""
+		message = (
+			'Nearby IK failed with '
+			+ self._describe_moveit_error_code(error_code)
+			+ f" for group '{request.ik_request.group_name}' and link '{request.ik_request.ik_link_name}'."
+		)
+		if error_code != MoveItErrorCodes.NO_IK_SOLUTION:
+			return message
+
+		diagnostic = self._diagnose_no_ik_solution(target_pose, request.ik_request.ik_link_name, start_state)
+		return message + ' ' + diagnostic + ' Target pose: ' + self._summarize_pose(target_pose) + '.'
+
+	def _diagnose_no_ik_solution(
+		self,
+		target_pose: PoseStamped,
+		target_frame: str,
+		start_state: RobotState,
+	) -> str:
+		"""
+		@brief Retry the same IK target without collision avoidance to classify common failures.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param start_state Current robot state used to seed IK.
+		@return Short diagnostic sentence describing the likely failure class.
+		"""
+		request = self._build_ik_request(
+			target_pose,
+			target_frame,
+			start_state,
+			avoid_collisions=False,
+		)
+		response, error_message = self._call_ik_request(request)
+		if response is None:
+			return 'A second IK probe without collision avoidance did not complete, so the failure cause remains ambiguous.'
+		if response.error_code.val == MoveItErrorCodes.SUCCESS:
+			return 'A second IK probe without collision avoidance succeeded, so the target is likely blocked by current-scene collision checking.'
+		if response.error_code.val == MoveItErrorCodes.NO_IK_SOLUTION:
+			return 'A second IK probe without collision avoidance also failed, so the target is likely outside reachable kinematics or violates joint/orientation limits.'
+		return (
+			'A second IK probe without collision avoidance failed with '
+			+ self._describe_moveit_error_code(response.error_code.val)
+			+ ', so the target remains infeasible even before scene-collision filtering.'
+		)
+
+	@staticmethod
+	def _summarize_pose(target_pose: PoseStamped) -> str:
+		"""
+		@brief Format one pose compactly for IK failure diagnostics.
+
+		@param target_pose Pose to summarize.
+		@return Compact frame, position, and orientation string.
+		"""
+		return (
+			f"frame='{target_pose.header.frame_id}', "
+			f"position=({target_pose.pose.position.x:.4f}, {target_pose.pose.position.y:.4f}, {target_pose.pose.position.z:.4f}), "
+			f"orientation=({target_pose.pose.orientation.x:.4f}, {target_pose.pose.orientation.y:.4f}, "
+			f"{target_pose.pose.orientation.z:.4f}, {target_pose.pose.orientation.w:.4f})"
+		)
 
 	@staticmethod
 	def _wait_for_future(future: Any, timeout_sec: float) -> bool:

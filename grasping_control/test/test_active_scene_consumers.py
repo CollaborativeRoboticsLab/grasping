@@ -234,6 +234,53 @@ def test_motion_execution_uses_grasp_recovery_between_tcp_and_tool_tip():
     assert 'using grasp recovery between tcp and tool_tip' in message
 
 
+def test_motion_execution_diagnoses_collision_filtered_no_ik_solution():
+    values = {
+        'planning_group': 'tm12s_arm',
+        'end_effector_link': 'tcp',
+        'ik_timeout_sec': 0.2,
+    }
+
+    node = MotionExecutionNode.__new__(MotionExecutionNode)
+    node.get_parameter = lambda name: _Parameter(values.get(name, ''))
+    node._wait_for_future = lambda future, timeout_sec: True
+
+    class _ComputeIkClient:
+        @staticmethod
+        def call_async(request):
+            response = type('_Response', (), {})()
+            response.solution = None
+            response.error_code = type('_ErrorCode', (), {})()
+            response.error_code.val = (
+                1 if request.ik_request.avoid_collisions is False else -31
+            )
+
+            class _Future:
+                @staticmethod
+                def result():
+                    return response
+
+            return _Future()
+
+    node._compute_ik_client = _ComputeIkClient()
+
+    target_pose = PoseStamped()
+    target_pose.header.frame_id = 'world'
+    target_pose.pose.position.x = 0.6
+    target_pose.pose.position.y = 0.2
+    target_pose.pose.position.z = 0.3
+    target_pose.pose.orientation.w = 1.0
+
+    start_state = motion_execution_module.robot_state_from_joint_state(type('_JointState', (), {'name': [], 'position': []})())
+    request = node._build_ik_request(target_pose, 'tcp', start_state, avoid_collisions=True)
+
+    message = node._format_nearby_ik_failure_message(request, -31, target_pose, start_state)
+
+    assert 'Nearby IK failed with NO_IK_SOLUTION (-31)' in message
+    assert 'without collision avoidance succeeded' in message
+    assert "Target pose: frame='world'" in message
+
+
 def _pose_from_values(frame: str, pose_values):
     pose = PoseStamped()
     pose.header.frame_id = frame
