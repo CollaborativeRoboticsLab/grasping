@@ -13,7 +13,9 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
 
-from grasping_control.common import coerce_string_sequence, transform_pose_to_frame
+from copy import deepcopy
+
+from grasping_control.common import Quaternion, coerce_string_sequence, rotate_vector_by_quaternion, transform_pose_to_frame
 from grasping_control.motion_utils import (
 	MotionPlanningConfig,
 	build_joint_move_group_goal,
@@ -72,6 +74,9 @@ class FeasibilityServiceNode(Node):
 			],
 		)
 		self.declare_parameter('fallback_to_pose_planning_on_ik_failure', True)
+		self.declare_parameter('grasp_pose_recovery_enabled', True)
+		self.declare_parameter('grasp_pose_recovery_tool_frame', 'tool_tip')
+		self.declare_parameter('grasp_pose_recovery_recalculate_attempts', 3)
 		self.declare_parameter('joint_state_timeout_sec', 0.5)
 		self.declare_parameter('ik_timeout_sec', 0.2)
 		self.declare_parameter('joint_goal_tolerance_rad', 0.001)
@@ -234,21 +239,77 @@ class FeasibilityServiceNode(Node):
 				'Target pose lies outside the calibrated workspace area.',
 			)
 
-		ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose, target_frame)
-		if ik_ok:
-			response.joint_state_solution = ik_payload['joint_state']
-			response.joint_state_solution_valid = True
-			if mode == 'arm_only_ik':
-				response.feasible = True
-				response.failure_reason = ''
-				response.suggested_fallback = ''
-				response.message = 'Cartesian IK feasibility succeeded.'
-				return response
-
-		if mode == 'arm_only_ik':
-			return self._fail_cartesian(response, 'ik_failed', 'move_base_then_arm', ik_message)
-
 		planning_config = self._motion_planning_config()
+		result = self._evaluate_cartesian_target(target_pose, target_frame, planning_config, mode)
+		if result['feasible']:
+			response.feasible = True
+			response.failure_reason = ''
+			response.suggested_fallback = ''
+			response.message = result['message']
+			response.planning_pose = result['planning_pose'].pose
+			response.planning_pose_valid = True
+			if result['joint_state'] is not None:
+				response.joint_state_solution = result['joint_state']
+				response.joint_state_solution_valid = True
+			return response
+
+		recovery_result = self._evaluate_grasp_pose_recovery(target_pose, target_frame, planning_config, mode)
+		if recovery_result['feasible']:
+			response.feasible = True
+			response.failure_reason = ''
+			response.suggested_fallback = ''
+			response.message = recovery_result['message']
+			response.planning_pose = recovery_result['planning_pose'].pose
+			response.planning_pose_valid = True
+			if recovery_result['joint_state'] is not None:
+				response.joint_state_solution = recovery_result['joint_state']
+				response.joint_state_solution_valid = True
+			return response
+
+		return self._fail_cartesian(
+			response,
+			str(result['failure_reason']),
+			str(result['suggested_fallback']),
+			str(result['message']),
+		)
+
+	def _evaluate_cartesian_target(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+		mode: str,
+	) -> Dict[str, Any]:
+		"""
+		@brief Evaluate one Cartesian target for IK-only or plan-only feasibility.
+
+		@param target_pose Goal pose in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param planning_config Planning settings snapshot.
+		@param mode Either arm_only_ik or arm_only_plan.
+		@return Result mapping with feasibility, diagnostics, and optional joint solution.
+		"""
+		ik_ok, ik_payload, ik_message = self._joint_goal_from_nearby_ik(target_pose, target_frame)
+		joint_state = ik_payload.get('joint_state') if ik_ok else None
+		if mode == 'arm_only_ik':
+			if ik_ok:
+				return {
+					'feasible': True,
+					'failure_reason': '',
+					'suggested_fallback': '',
+					'message': 'Cartesian IK feasibility succeeded.',
+					'joint_state': joint_state,
+					'planning_pose': target_pose,
+				}
+			return {
+				'feasible': False,
+				'failure_reason': 'ik_failed',
+				'suggested_fallback': 'move_base_then_arm',
+				'message': ik_message,
+				'joint_state': None,
+				'planning_pose': target_pose,
+			}
+
 		if ik_ok:
 			goal = build_joint_move_group_goal(
 				ik_payload['joint_state'],
@@ -259,15 +320,32 @@ class FeasibilityServiceNode(Node):
 			)
 			plan_ok, plan_message = self._execute_move_group_goal(goal)
 			if plan_ok:
-				response.feasible = True
-				response.failure_reason = ''
-				response.suggested_fallback = ''
-				response.message = 'Cartesian arm-only planning feasibility succeeded via nearby IK.'
-				return response
-			return self._fail_cartesian(response, 'planning_failed', 'move_base_then_arm', plan_message)
+				return {
+					'feasible': True,
+					'failure_reason': '',
+					'suggested_fallback': '',
+					'message': 'Cartesian arm-only planning feasibility succeeded via nearby IK.',
+					'joint_state': joint_state,
+					'planning_pose': target_pose,
+				}
+			return {
+				'feasible': False,
+				'failure_reason': 'planning_failed',
+				'suggested_fallback': 'move_base_then_arm',
+				'message': plan_message,
+				'joint_state': joint_state,
+				'planning_pose': target_pose,
+			}
 
 		if not bool(self.get_parameter('fallback_to_pose_planning_on_ik_failure').value):
-			return self._fail_cartesian(response, 'ik_failed', 'move_base_then_arm', ik_message)
+			return {
+				'feasible': False,
+				'failure_reason': 'ik_failed',
+				'suggested_fallback': 'move_base_then_arm',
+				'message': ik_message,
+				'joint_state': None,
+				'planning_pose': target_pose,
+			}
 
 		goal = build_move_group_goal(
 			target_pose,
@@ -278,12 +356,148 @@ class FeasibilityServiceNode(Node):
 		)
 		plan_ok, plan_message = self._execute_move_group_goal(goal)
 		if plan_ok:
-			response.feasible = True
-			response.failure_reason = ''
-			response.suggested_fallback = ''
-			response.message = 'Cartesian arm-only planning feasibility succeeded via pose-constrained planning.'
-			return response
-		return self._fail_cartesian(response, 'planning_failed', 'move_base_then_arm', ik_message + ' ' + plan_message)
+			return {
+				'feasible': True,
+				'failure_reason': '',
+				'suggested_fallback': '',
+				'message': 'Cartesian arm-only planning feasibility succeeded via pose-constrained planning.',
+				'joint_state': None,
+				'planning_pose': target_pose,
+			}
+		return {
+			'feasible': False,
+			'failure_reason': 'planning_failed',
+			'suggested_fallback': 'move_base_then_arm',
+			'message': ik_message + ' ' + plan_message,
+			'joint_state': None,
+			'planning_pose': target_pose,
+		}
+
+	def _evaluate_grasp_pose_recovery(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+		mode: str,
+	) -> Dict[str, Any]:
+		"""
+		@brief Evaluate tool-tip and interpolated grasp fallback targets.
+
+		@param target_pose Original requested grasp pose.
+		@param target_frame Requested constrained link.
+		@param planning_config Planning settings snapshot.
+		@param mode Either arm_only_ik or arm_only_plan.
+		@return Result mapping matching _evaluate_cartesian_target.
+		"""
+		frames = self._grasp_pose_recovery_frames(target_frame)
+		if frames is None:
+			return {'feasible': False}
+
+		primary_frame, recovery_frame = frames
+		frame_offset = self._lookup_recovery_frame_offset(primary_frame, recovery_frame)
+		if frame_offset is None:
+			return {'feasible': False}
+
+		tool_tip_result = self._evaluate_cartesian_target(target_pose, recovery_frame, planning_config, mode)
+		if not tool_tip_result['feasible']:
+			return {'feasible': False}
+
+		attempts = max(0, int(self.get_parameter('grasp_pose_recovery_recalculate_attempts').value))
+		fraction = 0.5
+		for attempt_index in range(attempts):
+			candidate_pose = self._pose_with_recovery_offset(target_pose, frame_offset, fraction)
+			candidate_result = self._evaluate_cartesian_target(candidate_pose, primary_frame, planning_config, mode)
+			if candidate_result['feasible']:
+				candidate_result['message'] = (
+					str(candidate_result['message'])
+					+ f' using grasp recovery between {primary_frame} and {recovery_frame} '
+					+ f'(attempt {attempt_index + 1}/{attempts}, fraction={fraction:.3f}).'
+				)
+				return candidate_result
+			fraction = 1.0 - ((1.0 - fraction) * 0.5)
+
+		tool_tip_result = dict(tool_tip_result)
+		tool_tip_result['message'] = str(tool_tip_result['message']) + f' using grasp recovery target frame {recovery_frame}.'
+		return tool_tip_result
+
+	def _grasp_pose_recovery_frames(self, target_frame: Optional[str]) -> Optional[tuple[str, str]]:
+		"""
+		@brief Resolve the primary and recovery grasp frames for TCP fallback.
+
+		@param target_frame Requested constrained link.
+		@return (primary_frame, recovery_frame) when recovery should run.
+		"""
+		if not bool(self.get_parameter('grasp_pose_recovery_enabled').value):
+			return None
+
+		primary_frame = str(target_frame or self.get_parameter('end_effector_link').value).strip()
+		recovery_frame = str(self.get_parameter('grasp_pose_recovery_tool_frame').value).strip()
+		configured_primary = str(self.get_parameter('end_effector_link').value).strip()
+		if not primary_frame or not recovery_frame or primary_frame == recovery_frame:
+			return None
+		if primary_frame != configured_primary:
+			return None
+		return primary_frame, recovery_frame
+
+	def _lookup_recovery_frame_offset(
+		self,
+		primary_frame: str,
+		recovery_frame: str,
+	) -> Optional[tuple[float, float, float]]:
+		"""
+		@brief Look up the recovery-frame origin expressed in the primary-frame coordinates.
+
+		@param primary_frame Link used for the original grasp target.
+		@param recovery_frame Alternate tool frame for fallback.
+		@return XYZ offset tuple in the primary-frame basis, or None when unavailable.
+		"""
+		try:
+			transform = self._tf_buffer.lookup_transform(
+				primary_frame,
+				recovery_frame,
+				rclpy.time.Time(),
+				timeout=rclpy.duration.Duration(seconds=1.0),
+			)
+		except Exception:
+			return None
+
+		offset = transform.transform.translation
+		if abs(offset.x) < 1e-6 and abs(offset.y) < 1e-6 and abs(offset.z) < 1e-6:
+			return None
+		return float(offset.x), float(offset.y), float(offset.z)
+
+	def _pose_with_recovery_offset(
+		self,
+		target_pose: PoseStamped,
+		frame_offset: tuple[float, float, float],
+		fraction: float,
+	) -> PoseStamped:
+		"""
+		@brief Shift a TCP pose so an interpolated tool point reaches the original target.
+
+		@param target_pose Original requested target pose.
+		@param frame_offset Recovery-frame origin expressed in the primary frame.
+		@param fraction Interpolation factor from the primary frame toward the recovery frame.
+		@return Adjusted pose that keeps orientation and backs off along the tool axis.
+		"""
+		adjusted_pose = deepcopy(target_pose)
+		rotated_offset = rotate_vector_by_quaternion(
+			(
+				frame_offset[0] * fraction,
+				frame_offset[1] * fraction,
+				frame_offset[2] * fraction,
+			),
+			Quaternion(
+				target_pose.pose.orientation.x,
+				target_pose.pose.orientation.y,
+				target_pose.pose.orientation.z,
+				target_pose.pose.orientation.w,
+			),
+		)
+		adjusted_pose.pose.position.x -= rotated_offset[0]
+		adjusted_pose.pose.position.y -= rotated_offset[1]
+		adjusted_pose.pose.position.z -= rotated_offset[2]
+		return adjusted_pose
 
 	def _handle_joint_feasibility(
 		self,

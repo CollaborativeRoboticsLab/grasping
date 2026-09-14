@@ -102,6 +102,7 @@ def test_motion_execution_reports_ik_failure_when_fallback_plan_also_fails(monke
         'move_group_action_name': 'move_action',
         'prefer_nearby_ik': True,
         'fallback_to_pose_planning_on_ik_failure': True,
+        'grasp_pose_recovery_enabled': False,
         'pose_relax_search_enabled': False,
         'pose_relax_limits': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     }
@@ -143,6 +144,7 @@ def test_motion_execution_searches_relaxed_pose_candidates_when_exact_goal_fails
         'move_group_action_name': 'move_action',
         'prefer_nearby_ik': True,
         'fallback_to_pose_planning_on_ik_failure': True,
+        'grasp_pose_recovery_enabled': False,
         'pose_relax_search_enabled': True,
         'pose_relax_limits': [0.0, 0.0, 0.10, 0.0, 0.0, 0.0],
     }
@@ -181,6 +183,55 @@ def test_motion_execution_searches_relaxed_pose_candidates_when_exact_goal_fails
     assert ok is True
     assert attempted_z_values[:2] == [1.0, 1.05]
     assert 'using relaxed pose offsets (z=+0.050)' in message
+
+
+def test_motion_execution_uses_grasp_recovery_between_tcp_and_tool_tip():
+    values = {
+        'move_group_action_name': 'move_action',
+        'prefer_nearby_ik': True,
+        'fallback_to_pose_planning_on_ik_failure': True,
+        'grasp_pose_recovery_enabled': True,
+        'grasp_pose_recovery_tool_frame': 'tool_tip',
+        'grasp_pose_recovery_recalculate_attempts': 2,
+        'end_effector_link': 'tcp',
+        'pose_relax_search_enabled': False,
+        'pose_relax_limits': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    }
+
+    node = MotionExecutionNode.__new__(MotionExecutionNode)
+    node.get_parameter = lambda name: _Parameter(values.get(name, ''))
+    node._get_bool_parameter = lambda name: bool(values[name])
+    node.get_logger = lambda: _Logger()
+    node._movegroup_client = type(
+        '_MoveGroupClient',
+        (),
+        {'wait_for_server': staticmethod(lambda timeout_sec: True)},
+    )()
+    node._motion_planning_config = lambda: object()
+    node._lookup_recovery_frame_offset = lambda primary_frame, recovery_frame: (0.0, 0.0, 0.2)
+    node._plan_pose_goal = lambda pose, target_frame, planning_config: (target_frame == 'tool_tip', 'tool_tip feasible')
+
+    attempts = []
+
+    def _try_pose_goal(pose, target_frame, planning_config):
+        del planning_config
+        attempts.append((target_frame, round(pose.pose.position.z, 3)))
+        if target_frame == 'tcp' and round(pose.pose.position.z, 3) == 0.9:
+            return True, 'Arm motion completed successfully.'
+        return False, 'MoveGroup failed with FAILURE (99999)'
+
+    node._try_pose_goal = _try_pose_goal
+
+    target_pose = PoseStamped()
+    target_pose.header.frame_id = 'world'
+    target_pose.pose.position.z = 1.0
+    target_pose.pose.orientation.w = 1.0
+
+    ok, message = node._try_grasp_pose_recovery(target_pose, 'tcp', object())
+
+    assert ok is True
+    assert attempts == [('tcp', 0.9)]
+    assert 'using grasp recovery between tcp and tool_tip' in message
 
 
 def _pose_from_values(frame: str, pose_values):

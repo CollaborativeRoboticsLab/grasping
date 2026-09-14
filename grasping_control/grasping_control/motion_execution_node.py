@@ -15,11 +15,13 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from sensor_msgs.msg import JointState
 
 from grasping_control.common import (
+	Quaternion,
 	coerce_float_sequence,
 	coerce_string_sequence,
 	nearest_equivalent_angle,
 	quaternion_from_rpy,
 	quaternion_to_rpy,
+	rotate_vector_by_quaternion,
 	transform_pose_to_frame,
 )
 from grasping_control.motion_utils import (
@@ -99,6 +101,9 @@ class MotionExecutionNode(Node):
 		)
 		self.declare_parameter('prefer_nearby_ik', True)
 		self.declare_parameter('fallback_to_pose_planning_on_ik_failure', True)
+		self.declare_parameter('grasp_pose_recovery_enabled', True)
+		self.declare_parameter('grasp_pose_recovery_tool_frame', 'tool_tip')
+		self.declare_parameter('grasp_pose_recovery_recalculate_attempts', 3)
 		self.declare_parameter('pose_relax_search_enabled', True)
 		self.declare_parameter('pose_relax_limits', [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 		self.declare_parameter('joint_state_timeout_sec', 0.5)
@@ -1018,6 +1023,14 @@ class MotionExecutionNode(Node):
 		if ok:
 			return ok, message
 
+		recovery_ok, recovery_message = self._try_grasp_pose_recovery(
+			target_pose,
+			target_frame,
+			planning_config,
+		)
+		if recovery_ok:
+			return True, recovery_message
+
 		effective_relax_limits = list(relax_limits) if relax_limits is not None else self._default_pose_relax_limits()
 		if not self._get_bool_parameter('pose_relax_search_enabled') or not any(limit > 0.0 for limit in effective_relax_limits):
 			return ok, message
@@ -1038,12 +1051,38 @@ class MotionExecutionNode(Node):
 		target_frame: Optional[str],
 		planning_config: MotionPlanningConfig,
 	) -> tuple[bool, str]:
+		return self._evaluate_pose_goal(target_pose, target_frame, planning_config, plan_only=False)
+
+	def _plan_pose_goal(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+	) -> tuple[bool, str]:
 		"""
-		@brief Try one exact pose goal via nearby IK then pose-constrained planning.
+		@brief Check whether one pose goal is plan-feasible without executing it.
 
 		@param target_pose Goal pose already expressed in the planning frame.
 		@param target_frame Robot frame/link that should reach the target pose.
 		@param planning_config Planning settings snapshot.
+		@return Tuple of success flag and status message.
+		"""
+		return self._evaluate_pose_goal(target_pose, target_frame, planning_config, plan_only=True)
+
+	def _evaluate_pose_goal(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+		plan_only: bool,
+	) -> tuple[bool, str]:
+		"""
+		@brief Try one pose goal via nearby IK then pose-constrained planning.
+
+		@param target_pose Goal pose already expressed in the planning frame.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param planning_config Planning settings snapshot.
+		@param plan_only When True, validate planning without executing the trajectory.
 		@return Tuple of success flag and status message.
 		"""
 		fallback_context: Optional[str] = None
@@ -1057,6 +1096,7 @@ class MotionExecutionNode(Node):
 					planning_config,
 					target_frame,
 					ik_payload['start_state'],
+					plan_only=plan_only,
 				)
 			else:
 				if not self._get_bool_parameter('fallback_to_pose_planning_on_ik_failure'):
@@ -1070,6 +1110,7 @@ class MotionExecutionNode(Node):
 					planning_config,
 					target_frame,
 					self._current_robot_state_or_none(),
+					plan_only=plan_only,
 				)
 		else:
 			goal = build_move_group_goal(
@@ -1077,12 +1118,142 @@ class MotionExecutionNode(Node):
 				planning_config,
 				target_frame,
 				self._current_robot_state_or_none(),
+				plan_only=plan_only,
 			)
 
 		ok, message = self._execute_move_group_goal(goal)
 		if not ok and fallback_context is not None:
 			return False, fallback_context + ' Fallback pose-constrained planning also failed: ' + message
 		return ok, message
+
+	def _try_grasp_pose_recovery(
+		self,
+		target_pose: PoseStamped,
+		target_frame: Optional[str],
+		planning_config: MotionPlanningConfig,
+	) -> tuple[bool, str]:
+		"""
+		@brief Recover a failed TCP grasp by probing tool-tip and interpolated offsets.
+
+		@param target_pose Original requested grasp pose.
+		@param target_frame Robot frame/link that should reach the target pose.
+		@param planning_config Planning settings snapshot.
+		@return Tuple of success flag and status message.
+		"""
+		frames = self._grasp_pose_recovery_frames(target_frame)
+		if frames is None:
+			return False, ''
+
+		primary_frame, recovery_frame = frames
+		frame_offset = self._lookup_recovery_frame_offset(primary_frame, recovery_frame)
+		if frame_offset is None:
+			return False, ''
+
+		tool_tip_ok, tool_tip_message = self._plan_pose_goal(target_pose, recovery_frame, planning_config)
+		if not tool_tip_ok:
+			return False, tool_tip_message
+
+		attempts = max(0, int(self.get_parameter('grasp_pose_recovery_recalculate_attempts').value))
+		fraction = 0.5
+		last_message = tool_tip_message
+		for attempt_index in range(attempts):
+			candidate_pose = self._pose_with_recovery_offset(target_pose, frame_offset, fraction)
+			ok, message = self._try_pose_goal(candidate_pose, primary_frame, planning_config)
+			if ok:
+				return True, (
+					message
+					+ f' using grasp recovery between {primary_frame} and {recovery_frame} '
+					+ f'(attempt {attempt_index + 1}/{attempts}, fraction={fraction:.3f}).'
+				)
+			last_message = message
+			fraction = 1.0 - ((1.0 - fraction) * 0.5)
+
+		ok, message = self._try_pose_goal(target_pose, recovery_frame, planning_config)
+		if ok:
+			return True, message + f' using grasp recovery target frame {recovery_frame}.'
+		return False, last_message or message
+
+	def _grasp_pose_recovery_frames(self, target_frame: Optional[str]) -> Optional[tuple[str, str]]:
+		"""
+		@brief Resolve the primary and recovery grasp frames for TCP fallback.
+
+		@param target_frame Requested constrained link.
+		@return (primary_frame, recovery_frame) when recovery should run.
+		"""
+		if not self._get_bool_parameter('grasp_pose_recovery_enabled'):
+			return None
+
+		primary_frame = str(target_frame or self.get_parameter('end_effector_link').value).strip()
+		recovery_frame = str(self.get_parameter('grasp_pose_recovery_tool_frame').value).strip()
+		configured_primary = str(self.get_parameter('end_effector_link').value).strip()
+		if not primary_frame or not recovery_frame or primary_frame == recovery_frame:
+			return None
+		if primary_frame != configured_primary:
+			return None
+		return primary_frame, recovery_frame
+
+	def _lookup_recovery_frame_offset(
+		self,
+		primary_frame: str,
+		recovery_frame: str,
+	) -> Optional[tuple[float, float, float]]:
+		"""
+		@brief Look up the recovery-frame origin expressed in the primary-frame coordinates.
+
+		@param primary_frame Link used for the original grasp target.
+		@param recovery_frame Alternate tool frame for fallback.
+		@return XYZ offset tuple in the primary-frame basis, or None when unavailable.
+		"""
+		try:
+			transform = self._tf_buffer.lookup_transform(
+				primary_frame,
+				recovery_frame,
+				rclpy.time.Time(),
+				timeout=rclpy.duration.Duration(seconds=1.0),
+			)
+		except Exception as exc:  # noqa: BLE001
+			self.get_logger().warn(
+				f'Grasp pose recovery skipped because TF lookup from {primary_frame} to {recovery_frame} failed: {exc}'
+			)
+			return None
+
+		offset = transform.transform.translation
+		if abs(offset.x) < 1e-6 and abs(offset.y) < 1e-6 and abs(offset.z) < 1e-6:
+			return None
+		return float(offset.x), float(offset.y), float(offset.z)
+
+	def _pose_with_recovery_offset(
+		self,
+		target_pose: PoseStamped,
+		frame_offset: tuple[float, float, float],
+		fraction: float,
+	) -> PoseStamped:
+		"""
+		@brief Shift a TCP pose so an interpolated tool point reaches the original target.
+
+		@param target_pose Original requested target pose.
+		@param frame_offset Recovery-frame origin expressed in the primary frame.
+		@param fraction Interpolation factor from the primary frame toward the recovery frame.
+		@return Adjusted pose that keeps orientation and backs off along the tool axis.
+		"""
+		adjusted_pose = deepcopy(target_pose)
+		rotated_offset = rotate_vector_by_quaternion(
+			(
+				frame_offset[0] * fraction,
+				frame_offset[1] * fraction,
+				frame_offset[2] * fraction,
+			),
+			Quaternion(
+				target_pose.pose.orientation.x,
+				target_pose.pose.orientation.y,
+				target_pose.pose.orientation.z,
+				target_pose.pose.orientation.w,
+			),
+		)
+		adjusted_pose.pose.position.x -= rotated_offset[0]
+		adjusted_pose.pose.position.y -= rotated_offset[1]
+		adjusted_pose.pose.position.z -= rotated_offset[2]
+		return adjusted_pose
 
 	def _search_relaxed_pose_candidates(
 		self,

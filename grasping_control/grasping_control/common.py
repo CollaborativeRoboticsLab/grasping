@@ -135,6 +135,35 @@ def quaternion_to_rpy(x: float, y: float, z: float, w: float) -> tuple[float, fl
     return roll, pitch, yaw
 
 
+def rotate_vector_by_quaternion(
+    vector: tuple[float, float, float],
+    quaternion: Quaternion,
+) -> tuple[float, float, float]:
+    """
+    @brief Rotate a 3D vector by a quaternion.
+
+    @param vector Vector expressed in the quaternion's local frame.
+    @param quaternion Rotation to apply.
+    @return Rotated vector in the parent frame.
+    """
+    normalized = normalize_quaternion(quaternion)
+    vx, vy, vz = vector
+    qx = normalized.x
+    qy = normalized.y
+    qz = normalized.z
+    qw = normalized.w
+
+    tx = 2.0 * (qy * vz - qz * vy)
+    ty = 2.0 * (qz * vx - qx * vz)
+    tz = 2.0 * (qx * vy - qy * vx)
+
+    return (
+        vx + qw * tx + (qy * tz - qz * ty),
+        vy + qw * ty + (qz * tx - qx * tz),
+        vz + qw * tz + (qx * ty - qy * tx),
+    )
+
+
 def nearest_equivalent_angle(target_angle: float, reference_angle: float) -> float:
     """
     @brief Shift an angular target by whole turns so it stays closest to a reference angle.

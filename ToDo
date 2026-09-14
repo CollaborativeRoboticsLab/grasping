@@ -8,3 +8,4 @@
 ## Improve unreachable pose handling.
 
 - [ ] Make relaxed pose search adaptive instead of the current fixed-axis sweep, so failure recovery can rank nearby XYZ/RPY candidates by scene clearance and recent IK success.
+- [ ] Refactor the new TCP-to-tool_tip grasp pose recovery flow out of the local grasping motion/feasibility nodes once a shared cross-stack reachability layer is ready.
